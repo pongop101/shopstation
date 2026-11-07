@@ -51,8 +51,16 @@ const SHEET_STORES = 'Stores';
 const SHEET_INSP = 'Inspections';
 const SHEET_USERS = 'Users';
 const SHEET_UNITS = 'Units';
+const SHEET_SELF = 'SelfReports';
+const SHEET_MSG = 'Messages';
+const MSG_COLS = ['id', 'created', 'from', 'fromName', 'to', 'toLabel', 'subject', 'body', 'link', 'kind', 'replyTo', 'readBy', 'hiddenBy'];
+const SELF_COLS = ['id', 'created', 'type', 'status', 'unitId', 'storeId', 'storeName', 'contact', 'reviewedBy', 'reviewedAt', 'json'];
+// สิทธิ์ย่อยของ อสม. (เจ้าหน้าที่/ผู้ดูแลหน่วยกำหนดได้)
+const OSM_PERMS = { add: 'เพิ่มร้านค้าใหม่', info: 'แก้ไขข้อมูลร้าน', location: 'ปรับพิกัด', photo: 'ถ่ายรูปหน้าร้าน', inspect: 'ตรวจประเมินร้านค้า', close: 'แจ้งร้านปิด/เปิด' };
+const OSM_DEFAULT = 'add,location,photo';
+const STORE_GROUPS = { info: ['village', 'moo', 'name', 'type', 'kind', 'owner', 'caretaker', 'phone', 'address', 'license', 'note'], location: ['lat', 'lng'], photo: ['photo'], close: ['closed', 'closedAt', 'closedReason', 'closedBy'] };
 const PHOTO_FOLDER = 'ShopStation Photos';
-const USER_COLS = ['email', 'name', 'position', 'unit', 'phone', 'role', 'status', 'picture', 'created', 'lastLogin', 'approvedBy', 'note', 'unitId', 'transferTo', 'transferBy', 'transferAt'];
+const USER_COLS = ['email', 'name', 'position', 'unit', 'phone', 'role', 'status', 'picture', 'created', 'lastLogin', 'approvedBy', 'note', 'unitId', 'transferTo', 'transferBy', 'transferAt', 'perms'];
 const UNIT_COLS = ['id', 'name', 'created', 'createdBy', 'code'];
 const ROLES = { superadmin: 'ผู้ดูแลระบบสูงสุด', unitadmin: 'ผู้ดูแลหน่วยบริการ', staff: 'เจ้าหน้าที่', osm: 'อสม.', viewer: 'ดูอย่างเดียว' };
 
@@ -60,6 +68,8 @@ function setup() {
   [SHEET_STORES, SHEET_INSP].forEach(n => getSheet_(n));
   usersSheet_();
   unitsSheet_();
+  selfSheet_();
+  msgSheet_();
   importUnits_();
   secret_();
   getFolder_();
@@ -82,6 +92,7 @@ function doGet() {
 }
 
 function doPost(e) {
+  ADMIN_CACHE_ = null;
   try {
     const req = JSON.parse(e.postData.contents);
     const a = req.action;
@@ -91,6 +102,10 @@ function doPost(e) {
     if (a === 'loginGoogle') return json_(loginGoogle_(req.credential));
     if (a === 'otpSend') return json_(otpSend_(req.email));
     if (a === 'otpVerify') return json_(otpVerify_(req.email, req.code));
+    // ---- ร้านค้ากรอกเอง (ไม่ต้องเข้าระบบ ใช้ลิงก์เฉพาะร้าน/หน่วย) ----
+    if (a === 'selfGet') return json_(selfGet_(req.token));
+    if (a === 'selfUnit') return json_(selfUnit_(req.unitId));
+    if (a === 'selfSubmit') return json_(withLock_(() => selfSubmit_(req)));
 
     // ---- ต้องเข้าระบบ ----
     const user = auth_(req.token);
@@ -103,14 +118,22 @@ function doPost(e) {
       case 'saveStore': need_(user, ['superadmin', 'unitadmin', 'staff', 'osm']); return json_(withLock_(() => saveStore_(user, req.record, req.flat)));
       case 'saveInspection': need_(user, ['superadmin', 'unitadmin', 'staff', 'osm']); return json_(withLock_(() => saveInsp_(user, req.record, req.flat)));
       case 'deleteStore': need_(user, ['superadmin', 'unitadmin']); return json_(withLock_(() => deleteStore_(user, req.id)));
-      case 'deleteInspection': need_(user, ['superadmin', 'unitadmin', 'staff', 'osm']); return json_(withLock_(() => deleteInsp_(user, req.id)));
+      case 'deleteInspection': need_(user, ['superadmin', 'unitadmin', 'staff', 'osm']); needPerm_(user, 'inspect'); return json_(withLock_(() => deleteInsp_(user, req.id)));
       case 'uploadPhoto': need_(user, ['superadmin', 'unitadmin', 'staff', 'osm']); return json_(uploadPhoto_(req));
-      case 'users': need_(user, ['superadmin', 'unitadmin']); return json_({ ok: true, users: visibleUsers_(user).map(publicUser_), units: readUnits_() });
-      case 'userUpdate': need_(user, ['superadmin', 'unitadmin']); return json_(withLock_(() => userUpdate_(user, req.email, req.changes || {})));
+      case 'users': need_(user, ['superadmin', 'unitadmin', 'staff']); return json_({ ok: true, users: visibleUsers_(user).map(publicUser_), units: readUnits_() });
+      case 'userUpdate': need_(user, ['superadmin', 'unitadmin', 'staff']); return json_(withLock_(() => userUpdate_(user, req.email, req.changes || {})));
       case 'userDelete': need_(user, ['superadmin', 'unitadmin']); return json_(withLock_(() => userDelete_(user, req.email)));
       case 'transferRequest': return json_(withLock_(() => transferRequest_(user, req.email, req.unitId)));
       case 'transferCancel': return json_(withLock_(() => transferCancel_(user, req.email)));
       case 'transferDecide': need_(user, ['superadmin', 'unitadmin']); return json_(withLock_(() => transferDecide_(user, req.email, !!req.approve)));
+      case 'storeLink': need_(user, ['superadmin', 'unitadmin', 'staff', 'osm']); return json_(withLock_(() => storeLink_(user, req.storeId)));
+      case 'selfList': need_(user, ['superadmin', 'unitadmin', 'staff', 'osm']); return json_({ ok: true, reports: selfList_(user) });
+      case 'selfReview': need_(user, ['superadmin', 'unitadmin', 'staff']); return json_(withLock_(() => selfReview_(user, req)));
+      case 'msgList': return json_(msgList_(user));
+      case 'msgContacts': return json_(msgContacts_(user));
+      case 'msgSend': return json_(withLock_(() => msgSend_(user, req)));
+      case 'msgRead': return json_(withLock_(() => msgMark_(user, req.ids || [], 'readBy')));
+      case 'msgHide': return json_(withLock_(() => msgMark_(user, req.ids || [], 'hiddenBy')));
       case 'unitSave': need_(user, ['superadmin']); return json_(withLock_(() => unitSave_(user, req.unit || {})));
       case 'unitDelete': need_(user, ['superadmin']); return json_(withLock_(() => unitDelete_(req.id)));
       default: throw new Error('ไม่รู้จักคำสั่ง ' + a);
@@ -127,6 +150,9 @@ function norm_(email) { return String(email || '').trim().toLowerCase(); }
 function isSuper_(u) { return u && u.role === 'superadmin'; }
 function isSuperEmail_(email) { return ADMIN_EMAILS.map(norm_).indexOf(norm_(email)) >= 0; }
 function sameUnit_(user, unitId) { return isSuper_(user) || (!!user.unitId && String(unitId || '') === String(user.unitId)); }
+function permSet_(u) { const o = {}; String(u.perms || '').split(',').map(x => x.trim()).filter(Boolean).forEach(k => o[k] = true); return o; }
+function hasPerm_(u, p) { return u.role !== 'osm' || !!permSet_(u)[p]; }
+function needPerm_(u, p) { if (!hasPerm_(u, p)) throw err_('FORBIDDEN', 'อสม. ยังไม่ได้รับสิทธิ์: ' + (OSM_PERMS[p] || p)); }
 function needUnit_(user) { if (!isSuper_(user) && !user.unitId) throw err_('NO_UNIT', 'บัญชียังไม่ได้กำหนดหน่วยบริการ กรุณาติดต่อผู้ดูแลระบบ'); }
 
 /* ================= session ================= */
@@ -234,6 +260,7 @@ function register_(user, p) {
     const u = findUser_(user.email);
     const isNew = !u.position && !u.phone;
     ['name', 'position', 'phone'].forEach(k => { if (p[k] !== undefined) u[k] = String(p[k]).slice(0, 200); });
+    if (u.status === 'pending' && (p.asRole === 'osm' || p.asRole === 'staff')) { u.role = p.asRole; if (p.asRole === 'osm' && !u.perms) u.perms = OSM_DEFAULT; }
     const units = readUnits_();
     if (p.unitId !== undefined && p.unitId !== u.unitId) {
       const un = units.filter(x => x.id === p.unitId)[0];
@@ -244,7 +271,8 @@ function register_(user, p) {
       }
     } else if (!units.length && p.unit !== undefined) u.unit = String(p.unit).slice(0, 200);
     writeUser_(u, false);
-    if (isNew && u.status === 'pending') notifyAdmins_(u);
+    if (isNew && u.status === 'pending') { notifyAdmins_(u); sysMsg_(u.unitId ? 'unit:' + u.unitId + ':admin' : 'super', '👤 ผู้สมัครใหม่รออนุมัติ: ' + (u.name || u.email),
+      (u.name || '-') + ' (' + u.email + ')\nสมัครเป็น: ' + (ROLES[u.role] || u.role) + '\nตำแหน่ง: ' + (u.position || '-') + '\nหน่วยบริการ: ' + (u.unit || '-') + '\nโทร: ' + (u.phone || '-'), '#users'); }
     return { ok: true, user: publicUser_(u) };
   });
 }
@@ -287,10 +315,12 @@ function notifyPending() {
 /* ================= ผู้ใช้ ================= */
 function visibleUsers_(admin) {
   const all = readUsers_();
+  if (admin.role === 'staff') return all.filter(u => u.role === 'osm' && u.unitId && String(u.unitId) === String(admin.unitId));
   return isSuper_(admin) ? all : all.filter(u => u.role !== 'superadmin' && ((u.unitId && String(u.unitId) === String(admin.unitId)) || (u.transferTo && String(u.transferTo) === String(admin.unitId))));
 }
 function canManage_(admin, u) {
   if (isSuper_(admin)) return true;
+  if (admin.role === 'staff') return !!admin.unitId && u.role === 'osm' && String(u.unitId) === String(admin.unitId);
   return admin.role === 'unitadmin' && !!admin.unitId && String(u.unitId) === String(admin.unitId) && u.role !== 'superadmin' && u.role !== 'unitadmin';
 }
 function userUpdate_(admin, email, ch) {
@@ -300,8 +330,18 @@ function userUpdate_(admin, email, ch) {
   if (email === admin.email) throw new Error('แก้ไขสิทธิ์หรือสถานะของบัญชีตัวเองไม่ได้');
   if (!canManage_(admin, u)) throw err_('FORBIDDEN', 'จัดการได้เฉพาะเจ้าหน้าที่ในหน่วยบริการของคุณ');
   if (isSuperEmail_(email)) throw new Error('แก้ไขผู้ดูแลระบบสูงสุดไม่ได้');
+  if (admin.role === 'staff') {   // เจ้าหน้าที่: จัดการ อสม. ได้เฉพาะ อนุมัติ/ระงับ และสิทธิ์ย่อย — เปลี่ยนเป็นสิทธิ์อื่นไม่ได้
+    if (ch.role && ch.role !== 'osm') throw err_('FORBIDDEN', 'เจ้าหน้าที่เปลี่ยนสิทธิ์ อสม. เป็นสิทธิ์อื่นไม่ได้');
+    delete ch.role; delete ch.unitId;
+  }
+  if (ch.perms !== undefined) {
+    const list = String(ch.perms).split(',').map(x => x.trim()).filter(k => OSM_PERMS[k]);
+    if (list.join(',') !== String(u.perms || '') && u.status === 'approved') sysMsg_(u.email, '🔑 สิทธิ์ อสม. ของคุณถูกปรับปรุง', 'สิทธิ์ใหม่: ' + permText_(list.join(',')) + '\nโดย: ' + (admin.name || admin.email), '#settings');
+    u.perms = list.join(',');
+  }
   if (ch.role) {
     if (!ROLES[ch.role]) throw new Error('บทบาทไม่ถูกต้อง');
+    if (ch.role === 'osm' && !u.perms) u.perms = OSM_DEFAULT;
     if (!isSuper_(admin) && ['staff', 'osm', 'viewer'].indexOf(ch.role) < 0) throw err_('FORBIDDEN', 'ผู้ดูแลหน่วยบริการกำหนดได้เฉพาะสิทธิ์ เจ้าหน้าที่ / อสม. / ดูอย่างเดียว');
     u.role = ch.role;
   }
@@ -317,6 +357,7 @@ function userUpdate_(admin, email, ch) {
     const wasPending = u.status !== 'approved' && ch.status === 'approved';
     u.status = ch.status; if (ch.status === 'approved') u.approvedBy = admin.email;
     if (wasPending) {
+      sysMsg_(u.email, '🎉 บัญชีของคุณได้รับการอนุมัติแล้ว', 'ยินดีต้อนรับสู่ ' + APP_NAME + '\nหน่วยบริการ: ' + (u.unit || '-') + '\nสิทธิ์: ' + ROLES[u.role] + (u.role === 'osm' ? '\nสิทธิ์ อสม.: ' + permText_(u.perms) : '') + '\nอนุมัติโดย: ' + (admin.name || admin.email), '#map');
       try { MailApp.sendEmail({ to: u.email, name: APP_NAME, subject: APP_NAME + ': บัญชีของคุณได้รับการอนุมัติแล้ว', body: 'บัญชี ' + u.email + ' ได้รับการอนุมัติให้ใช้งาน ' + APP_NAME + ' แล้ว\nหน่วยบริการ: ' + (u.unit || '-') + '\nสิทธิ์: ' + ROLES[u.role] + '\n\nเปิดแอป: ' + APP_URL }); } catch (e) { }
     }
   }
@@ -346,6 +387,7 @@ function transferRequest_(actor, email, unitId) {
   }
   u.transferTo = un.id; u.transferBy = actor.email; u.transferAt = new Date();
   writeUser_(u, false);
+  sysMsg_('unit:' + un.id + ':admin', '🔁 คำขอย้ายเข้า ' + un.name + ': ' + (u.name || u.email), (u.name || '-') + ' (' + u.email + ')\nตำแหน่ง: ' + (u.position || '-') + '\nจากหน่วย: ' + (u.unit || '-') + '\nผู้ขอ: ' + actor.email, '#users');
   try {
     const to = adminEmailsFor_(un.id);
     MailApp.sendEmail({ to: to.join(','), name: APP_NAME, subject: '🔔 ' + APP_NAME + ': คำขอย้ายเข้า ' + un.name + ' — ' + (u.name || u.email),
@@ -381,9 +423,11 @@ function transferDecide_(admin, email, approve) {
   return { ok: true, user: publicUser_(u) };
 }
 function mailUser_(u, subject, body) {
+  sysMsg_(u.email, subject, body, '');
   try { MailApp.sendEmail({ to: u.email, name: APP_NAME, subject: APP_NAME + ': ' + subject, body: body + '\n\nเปิดแอป: ' + APP_URL }); } catch (e) { }
 }
 function userDelete_(admin, email) {
+  if (admin.role === 'staff') throw err_('FORBIDDEN', 'เจ้าหน้าที่ลบบัญชีไม่ได้ (ใช้ “ระงับ” แทน)');
   email = norm_(email);
   const u = findUser_(email);
   if (!u) throw new Error('ไม่พบผู้ใช้');
@@ -395,7 +439,7 @@ function userDelete_(admin, email) {
 }
 function publicUser_(u) {
   return { email: u.email, name: u.name, position: u.position, unit: u.unit, unitId: u.unitId || '', phone: u.phone, role: u.role, status: u.status, picture: u.picture,
-    transferTo: String(u.transferTo || ''), transferBy: u.transferBy || '', transferAt: u.transferAt ? new Date(u.transferAt).getTime() : 0,
+    perms: u.role === 'osm' ? String(u.perms || '') : '', transferTo: String(u.transferTo || ''), transferBy: u.transferBy || '', transferAt: u.transferAt ? new Date(u.transferAt).getTime() : 0,
     created: u.created ? new Date(u.created).getTime() : 0, lastLogin: u.lastLogin ? new Date(u.lastLogin).getTime() : 0, approvedBy: u.approvedBy, note: u.note };
 }
 function usersSheet_() {
@@ -537,7 +581,8 @@ function list_(user) {
   const insps = readAll_(SHEET_INSP).filter(i => ids[i.storeId]);
   const pending = isSuper_(user) ? readUsers_().filter(u => u.status === 'pending' || u.transferTo).length :
     user.role === 'unitadmin' ? readUsers_().filter(u => (u.status === 'pending' && u.unitId === user.unitId) || (u.transferTo && u.transferTo === user.unitId)).length : 0;
-  return { ok: true, user: publicUser_(user), stores: stores, inspections: insps, pending: pending, units: readUnits_().map(u => ({ id: u.id, name: u.name, code: u.code })) };
+  const selfPending = readSelf_().filter(r => r.status === 'pending' && sameUnit_(user, r.unitId)).length;
+  return { ok: true, user: publicUser_(user), stores: stores, inspections: insps, pending: pending, selfPending: selfPending, msgUnread: msgUnread_(user), units: readUnits_().map(u => ({ id: u.id, name: u.name, code: u.code })) };
 }
 function findRec_(name, id) { return readAll_(name).filter(r => r.id === id)[0] || null; }
 function saveStore_(user, rec, flat) {
@@ -545,6 +590,20 @@ function saveStore_(user, rec, flat) {
   needUnit_(user);
   const old = findRec_(SHEET_STORES, rec.id);
   if (old && !sameUnit_(user, old.unitId)) throw err_('FORBIDDEN', 'ร้านนี้อยู่ในหน่วยบริการอื่น');
+  if (user.role === 'osm') {
+    const P = permSet_(user);
+    if (!old) { if (!P.add) throw err_('FORBIDDEN', 'อสม. ยังไม่ได้รับสิทธิ์: ' + OSM_PERMS.add); }
+    else {   // รับเฉพาะส่วนที่มีสิทธิ์ ส่วนอื่นคงค่าเดิม
+      const merged = JSON.parse(JSON.stringify(old));
+      let any = false;
+      Object.keys(STORE_GROUPS).forEach(g => { if (P[g]) { any = true; STORE_GROUPS[g].forEach(k => { if (rec[k] === undefined) delete merged[k]; else merged[k] = rec[k]; }); } });
+      if (!any) throw err_('FORBIDDEN', 'อสม. ยังไม่ได้รับสิทธิ์แก้ไขข้อมูลร้าน');
+      ['selfToken'].forEach(k => { if (old[k]) merged[k] = old[k]; });
+      merged.updated = rec.updated; merged.by = rec.by;
+      rec = merged;
+    }
+  }
+  if (old && old.selfToken && !rec.selfToken) rec.selfToken = old.selfToken;
   if (isSuper_(user)) rec.unitId = rec.unitId || (old && old.unitId) || user.unitId || '';
   else rec.unitId = user.unitId;
   flat = Object.assign({}, flat || {}, { 'หน่วยบริการ': unitName_(rec.unitId) });
@@ -553,6 +612,7 @@ function saveStore_(user, rec, flat) {
 function saveInsp_(user, rec, flat) {
   if (!rec || !rec.id) throw new Error('ข้อมูลไม่ครบ');
   needUnit_(user);
+  needPerm_(user, 'inspect');
   const st = findRec_(SHEET_STORES, rec.storeId);
   if (!st) throw new Error('ไม่พบร้านค้าของผลตรวจนี้ (อาจถูกลบแล้ว)');
   if (!sameUnit_(user, st.unitId)) throw err_('FORBIDDEN', 'ร้านนี้อยู่ในหน่วยบริการอื่น');
@@ -575,6 +635,221 @@ function deleteInsp_(user, id) {
   const ok = isSuper_(user) || (sameUnit_(user, unitId) && (user.role === 'unitadmin' || !r.createdBy || r.createdBy === user.email));
   if (!ok) throw err_('FORBIDDEN', 'ลบได้เฉพาะผลตรวจที่ตนเองบันทึก หรือผู้ดูแลหน่วยบริการ');
   return deleteRows_(SHEET_INSP, x => x.id === id);
+}
+
+/* ================= ร้านค้ากรอกข้อมูลเอง / ประเมินตนเอง ================= */
+function selfSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(SHEET_SELF);
+  if (!sh) { sh = ss.insertSheet(SHEET_SELF); sh.getRange(1, 1, 1, SELF_COLS.length).setValues([SELF_COLS]).setFontWeight('bold').setBackground('#e9d5ff'); sh.setFrozenRows(1); }
+  return sh;
+}
+function readSelf_() {
+  const sh = selfSheet_(); const lr = sh.getLastRow(); if (lr < 2) return [];
+  return sh.getRange(2, 1, lr - 1, SELF_COLS.length).getValues().map((r, i) => {
+    const o = { _row: i + 2 }; SELF_COLS.forEach((k, j) => o[k] = r[j]);
+    try { o.data = JSON.parse(o.json || '{}'); } catch (e) { o.data = {}; }
+    delete o.json; o.created = o.created ? new Date(o.created).getTime() : 0; o.reviewedAt = o.reviewedAt ? new Date(o.reviewedAt).getTime() : 0; return o;
+  });
+}
+function selfToken_() { return Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8); }
+function storeByToken_(token) { if (!token || String(token).length < 20) return null; return readAll_(SHEET_STORES).filter(s => s.selfToken === token)[0] || null; }
+function storeLink_(user, storeId) {
+  const st = findRec_(SHEET_STORES, storeId);
+  if (!st) throw new Error('ไม่พบร้านค้า (ถ้าเพิ่งสร้าง กรุณาซิงก์ก่อน)');
+  if (!sameUnit_(user, st.unitId)) throw err_('FORBIDDEN', 'ร้านนี้อยู่ในหน่วยบริการอื่น');
+  if (!st.selfToken) { st.selfToken = selfToken_(); rewriteJson_(SHEET_STORES, st); }
+  return { ok: true, token: st.selfToken, url: APP_URL + '#self/' + st.selfToken };
+}
+const SELF_FIELDS = ['name', 'type', 'kind', 'owner', 'caretaker', 'phone', 'address', 'village', 'moo', 'license', 'lat', 'lng'];
+function selfGet_(token) {
+  const st = storeByToken_(token);
+  if (!st) throw new Error('ลิงก์ไม่ถูกต้องหรือหมดอายุ กรุณาขอลิงก์ใหม่จากเจ้าหน้าที่');
+  const info = {}; SELF_FIELDS.concat(['photo', 'closed']).forEach(k => info[k] = st[k] === undefined ? '' : st[k]);
+  const pend = readSelf_().filter(r => r.storeId === st.id && r.status === 'pending').length;
+  return { ok: true, store: info, unitName: unitName_(st.unitId), pending: pend };
+}
+function selfUnit_(unitId) {
+  const u = readUnits_().filter(x => x.id === unitId)[0];
+  if (!u) throw new Error('ลิงก์ลงทะเบียนไม่ถูกต้อง');
+  return { ok: true, unit: { id: u.id, name: u.name, code: u.code } };
+}
+function cleanSelf_(d) {
+  const info = {}; SELF_FIELDS.forEach(k => { if (d.info && d.info[k] !== undefined) info[k] = String(d.info[k]).slice(0, 300); });
+  if (info.lat !== undefined && info.lat !== '' && isNaN(Number(info.lat))) delete info.lat;
+  if (info.lng !== undefined && info.lng !== '' && isNaN(Number(info.lng))) delete info.lng;
+  const a = d.assessment || null;
+  const assess = a ? { answers: a.answers || {}, notes: a.notes || {}, sources: a.sources || [], sourceOther: String(a.sourceOther || '').slice(0, 200),
+    training: a.training || '', trainingYear: String(a.trainingYear || '').slice(0, 10), understanding: a.understanding || '', comment: String(a.comment || '').slice(0, 1000) } : null;
+  return { info: info, assessment: assess, contactName: String(d.contactName || '').slice(0, 100), contactPhone: String(d.contactPhone || '').slice(0, 30) };
+}
+function selfSubmit_(req) {
+  const c = CacheService.getScriptCache();
+  const key = 'self_' + (req.token || req.unitId || 'x');
+  if (c.get(key)) throw new Error('เพิ่งส่งข้อมูลไปแล้ว กรุณารอสักครู่แล้วลองใหม่');
+  let st = null, unitId = '', type = 'update';
+  if (req.token) { st = storeByToken_(req.token); if (!st) throw new Error('ลิงก์ไม่ถูกต้อง'); unitId = st.unitId; }
+  else { const u = readUnits_().filter(x => x.id === req.unitId)[0]; if (!u) throw new Error('ลิงก์ลงทะเบียนไม่ถูกต้อง'); unitId = u.id; type = 'new'; }
+  const d = cleanSelf_(req);
+  if (type === 'new' && !d.info.name) throw new Error('กรุณากรอกชื่อร้านค้า');
+  if (req.photo) { if (String(req.photo).length > 4e6) throw new Error('รูปมีขนาดใหญ่เกินไป'); d.info.photo = uploadPhoto_({ data: req.photo, name: 'self_' + Date.now() + '.jpg' }).url; }
+  if (!Object.keys(d.info).length && !d.assessment) throw new Error('ไม่มีข้อมูลที่จะส่ง');
+  const id = 'sr' + Utilities.getUuid().replace(/-/g, '').slice(0, 12);
+  selfSheet_().appendRow([id, new Date(), type, 'pending', unitId, st ? st.id : '', st ? st.name : d.info.name, (d.contactName + ' ' + d.contactPhone).trim(), '', '', JSON.stringify(d)]);
+  c.put(key, '1', 30);
+  sysMsg_('unit:' + unitId + ':staff', '📥 ' + (type === 'new' ? 'ร้านค้าใหม่ลงทะเบียน: ' : 'ร้านค้าส่งข้อมูล: ') + (st ? st.name : d.info.name),
+    (type === 'new' ? 'มีร้านค้าใหม่ลงทะเบียนผ่านลิงก์ของหน่วยบริการ' : 'ร้านส่งข้อมูล' + (d.assessment ? 'และผลประเมินตนเอง' : '')) + '\nผู้ส่ง: ' + ((d.contactName + ' ' + d.contactPhone).trim() || '-') + '\nกรุณาตรวจรับในกล่อง “ข้อมูลจากร้านค้า”', '#inbox');
+  try {
+    const to = readUsers_().filter(x => x.status === 'approved' && x.unitId === unitId && ['unitadmin', 'staff'].indexOf(x.role) >= 0).map(x => x.email);
+    if (to.length) MailApp.sendEmail({ to: to.join(','), name: APP_NAME, subject: '📥 ' + APP_NAME + ': ' + (type === 'new' ? 'ร้านค้าใหม่ลงทะเบียน' : 'ร้านค้าส่งข้อมูล/ประเมินตนเอง') + ' — ' + (st ? st.name : d.info.name),
+      htmlBody: '<div style="font-family:sans-serif;font-size:15px">' + (type === 'new' ? 'มีร้านค้าใหม่ลงทะเบียนผ่านลิงก์ของหน่วยบริการ' : 'ร้าน <b>' + st.name + '</b> ส่งข้อมูล' + (d.assessment ? 'และผลประเมินตนเอง' : '')) +
+        '<br>ผู้ส่ง: ' + (d.contactName || '-') + ' ' + (d.contactPhone || '') + '<br><br><a href="' + APP_URL + '#inbox" style="background:#0f766e;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">เปิดกล่องข้อมูลจากร้านค้า</a></div>' });
+  } catch (e) { }
+  return { ok: true, id: id };
+}
+function selfList_(user) {
+  return readSelf_().filter(r => sameUnit_(user, r.unitId)).sort((a, b) => (a.status === 'pending' ? 0 : 1) - (b.status === 'pending' ? 0 : 1) || b.created - a.created).slice(0, 200);
+}
+function selfReview_(user, req) {
+  const r = readSelf_().filter(x => x.id === req.id)[0];
+  if (!r) throw new Error('ไม่พบรายการ');
+  if (!sameUnit_(user, r.unitId)) throw err_('FORBIDDEN', 'รายการนี้อยู่ในหน่วยบริการอื่น');
+  if (r.status !== 'pending') throw new Error('รายการนี้ตรวจรับไปแล้ว');
+  const sh = selfSheet_();
+  const res = { ok: true };
+  if (req.decision === 'accept') {
+    const d = r.data || {}; const now = Date.now();
+    let st;
+    if (r.type === 'new') {
+      st = Object.assign({ id: 's' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), village: '', name: '' }, d.info || {});
+      st.unitId = r.unitId; st.created = now; st.selfToken = selfToken_(); st.by = 'ร้านค้าลงทะเบียนเอง';
+      if (st.lat !== undefined && st.lat !== '') st.lat = Number(st.lat); if (st.lng !== undefined && st.lng !== '') st.lng = Number(st.lng);
+    } else {
+      st = findRec_(SHEET_STORES, r.storeId); if (!st) throw new Error('ไม่พบร้านค้า (อาจถูกลบแล้ว)');
+      if (req.applyInfo !== false) Object.keys(d.info || {}).forEach(k => { const v = d.info[k]; if (v !== '' && v !== undefined) st[k] = (k === 'lat' || k === 'lng') ? Number(v) : v; });
+    }
+    st.updated = now;
+    upsert_(SHEET_STORES, st, { 'หน่วยบริการ': unitName_(st.unitId), 'ชื่อร้าน': st.name || '', 'หมู่บ้าน': st.village || '' }, user);
+    res.store = st;
+    if (d.assessment && req.applyAssessment !== false) {
+      const ins = Object.assign({ id: 'self' + Utilities.getUuid().replace(/-/g, '').slice(0, 10), storeId: st.id, unitId: st.unitId, type: 'self',
+        date: Utilities.formatDate(new Date(r.created || now), 'Asia/Bangkok', 'yyyy-MM-dd'), inspector: 'ร้านค้าประเมินตนเอง' + (d.contactName ? ' (' + d.contactName + ')' : ''),
+        tests: {}, photos: [], created: now, updated: now }, d.assessment);
+      upsert_(SHEET_INSP, ins, { 'รหัสร้าน': st.id, 'ชื่อร้าน': st.name || '', 'วันที่ตรวจ': ins.date, 'ผู้ตรวจ': ins.inspector, 'ประเภท': 'ประเมินตนเอง', 'หน่วยบริการ': unitName_(st.unitId) }, user);
+      res.inspection = ins;
+    }
+  }
+  sh.getRange(r._row, 4).setValue(req.decision === 'accept' ? 'accepted' : 'rejected');
+  sh.getRange(r._row, 9, 1, 2).setValues([[user.email, new Date()]]);
+  return res;
+}
+
+/* ================= กล่องจดหมาย ================= */
+// ผู้รับ: อีเมล | 'all' | 'super' | 'unit:<id>' (ทุกคนในหน่วย) | 'unit:<id>:staff' (เจ้าหน้าที่+ผู้ดูแลหน่วย) | 'unit:<id>:osm' | 'unit:<id>:admin'
+function permText_(p) { return String(p || '').split(',').filter(k => OSM_PERMS[k]).map(k => OSM_PERMS[k]).join(', ') || '-'; }
+function msgSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(SHEET_MSG);
+  if (!sh) { sh = ss.insertSheet(SHEET_MSG); sh.getRange(1, 1, 1, MSG_COLS.length).setValues([MSG_COLS]).setFontWeight('bold').setBackground('#bfdbfe'); sh.setFrozenRows(1); }
+  return sh;
+}
+function readMsgs_() {
+  const sh = msgSheet_(); const lr = sh.getLastRow(); if (lr < 2) return [];
+  const n = Math.min(lr - 1, 3000), start = lr - n + 1;   // อ่านล่าสุด 3,000 ข้อความ
+  return sh.getRange(start, 1, n, MSG_COLS.length).getValues().map((r, i) => {
+    const o = { _row: start + i }; MSG_COLS.forEach((k, j) => o[k] = r[j]);
+    o.created = o.created ? new Date(o.created).getTime() : 0; o.from = norm_(o.from); o.to = String(o.to || ''); return o;
+  });
+}
+function hasIn_(list, email) { return (',' + String(list || '') + ',').indexOf(',' + email + ',') >= 0; }
+function isFor_(m, u) {
+  const t = m.to;
+  if (t === u.email || t === 'all') return true;
+  if (t === 'super') return isSuper_(u);
+  const p = t.split(':'); if (p[0] !== 'unit') return false;
+  if (p[2] === 'admin') return isSuper_(u) && !hasAdmin_(p[1]) || (u.role === 'unitadmin' && u.unitId === p[1]);
+  if (u.unitId !== p[1]) return false;
+  if (!p[2]) return true;
+  if (p[2] === 'staff') return u.role === 'staff' || u.role === 'unitadmin';
+  if (p[2] === 'osm') return u.role === 'osm';
+  return false;
+}
+let ADMIN_CACHE_ = null;
+function hasAdmin_(unitId) {   // หน่วยที่ยังไม่มีผู้ดูแลหน่วย → ส่งถึงผู้ดูแลระบบสูงสุดแทน
+  if (!ADMIN_CACHE_) { ADMIN_CACHE_ = {}; readUsers_().filter(x => x.role === 'unitadmin' && x.status === 'approved').forEach(x => ADMIN_CACHE_[x.unitId] = 1); }
+  return !!ADMIN_CACHE_[unitId];
+}
+function toLabel_(to) {
+  if (to === 'all') return 'ทุกคนในระบบ';
+  if (to === 'super') return 'ผู้ดูแลระบบสูงสุด';
+  const p = to.split(':');
+  if (p[0] === 'unit') { const n = unitName_(p[1]) || 'หน่วยบริการ'; return ({ '': 'ทุกคนใน ', staff: 'เจ้าหน้าที่ ', osm: 'อสม. ', admin: 'ผู้ดูแล ' })[p[2] || ''] + n; }
+  const u = findUser_(to); return u ? (u.name || u.email) : to;
+}
+function sysMsg_(to, subject, body, link) {
+  try { msgSheet_().appendRow(['m' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), new Date(), 'system', 'ระบบแจ้งเตือน', to, toLabel_(to), String(subject).slice(0, 200), String(body || '').slice(0, 3000), link || '', 'sys', '', '', '']); } catch (e) { }
+}
+function msgPublic_(m, u) {
+  return { id: m.id, created: m.created, from: m.from, fromName: m.fromName, to: m.to, toLabel: m.toLabel, subject: m.subject, body: m.body, link: m.link, kind: m.kind, replyTo: m.replyTo,
+    read: m.from === u.email || hasIn_(m.readBy, u.email), mine: m.from === u.email };
+}
+function msgList_(u) {
+  const all = readMsgs_().filter(m => !hasIn_(m.hiddenBy, u.email) && (m.from === u.email || isFor_(m, u)));
+  all.sort((a, b) => b.created - a.created);
+  return { ok: true, messages: all.slice(0, 300).map(m => msgPublic_(m, u)), unread: all.filter(m => m.from !== u.email && !hasIn_(m.readBy, u.email)).length };
+}
+function msgUnread_(u) { try { return readMsgs_().filter(m => m.from !== u.email && isFor_(m, u) && !hasIn_(m.readBy, u.email) && !hasIn_(m.hiddenBy, u.email)).length; } catch (e) { return 0; } }
+function msgTargets_(u) {   // กลุ่มที่ส่งถึงได้
+  const t = [];
+  if (isSuper_(u)) { t.push(['all', 'ทุกคนในระบบ']); readUnits_().forEach(x => { t.push(['unit:' + x.id, 'ทุกคนใน ' + x.name]); }); }
+  else if (u.unitId) {
+    const n = unitName_(u.unitId);
+    t.push(['unit:' + u.unitId, 'ทุกคนใน ' + n]);
+    t.push(['unit:' + u.unitId + ':staff', 'เจ้าหน้าที่ ' + n]);
+    if (u.role !== 'osm') t.push(['unit:' + u.unitId + ':osm', 'อสม. ' + n]);
+    t.push(['unit:' + u.unitId + ':admin', 'ผู้ดูแล ' + n]);
+  }
+  t.push(['super', 'ผู้ดูแลระบบสูงสุด']);
+  return t;
+}
+function msgContacts_(u) {
+  const people = readUsers_().filter(x => x.status === 'approved' && x.email !== u.email && (isSuper_(u) || x.role === 'superadmin' || (u.unitId && x.unitId === u.unitId)))
+    .map(x => ({ email: x.email, name: x.name || x.email, role: x.role, unit: x.unit || '' }));
+  return { ok: true, groups: msgTargets_(u).map(x => ({ to: x[0], label: x[1] })), people: people };
+}
+function msgSend_(u, req) {
+  let to = String(req.to || '').trim(); if (to.indexOf('@') > 0) to = norm_(to);
+  const subject = String(req.subject || '').trim(), body = String(req.body || '').trim();
+  if (!to) throw new Error('กรุณาเลือกผู้รับ');
+  if (!subject && !body) throw new Error('กรุณาพิมพ์ข้อความ');
+  const c = CacheService.getScriptCache(); const k = 'msg_' + u.email; const n = Number(c.get(k) || 0);
+  if (n >= 20) throw new Error('ส่งข้อความถี่เกินไป กรุณารอสักครู่');
+  c.put(k, String(n + 1), 60);
+  let ok = false, toReal = to;
+  if (to.indexOf('@') > 0) {
+    const r = findUser_(to);
+    ok = !!r && r.status === 'approved' && (isSuper_(u) || r.role === 'superadmin' || (u.unitId && r.unitId === u.unitId));
+    if (!ok && req.replyTo) { const orig = readMsgs_().filter(m => m.id === req.replyTo)[0]; ok = !!orig && orig.from === to && isFor_(orig, u); }
+  } else {
+    ok = msgTargets_(u).some(x => x[0] === to);
+  }
+  if (!ok) throw err_('FORBIDDEN', 'ส่งข้อความถึงผู้รับนี้ไม่ได้');
+  const id = 'm' + Utilities.getUuid().replace(/-/g, '').slice(0, 12);
+  const link = /^#(store|report)\/[\w-]+$/.test(req.link || '') ? req.link : '';
+  msgSheet_().appendRow([id, new Date(), u.email, u.name || u.email, toReal, toLabel_(toReal), (subject || body.slice(0, 60)).slice(0, 200), body.slice(0, 5000), link, 'msg', String(req.replyTo || '').slice(0, 20), '', '']);
+  if (req.email && toReal.indexOf('@') > 0) { try { MailApp.sendEmail({ to: toReal, name: APP_NAME, subject: '📬 ' + APP_NAME + ': ข้อความจาก ' + (u.name || u.email) + ' — ' + subject, body: body + '\n\nตอบกลับในแอป: ' + APP_URL + '#mail' }); } catch (e) { } }
+  return { ok: true, id: id };
+}
+function msgMark_(u, ids, col) {
+  if (!ids.length) return { ok: true };
+  const set = {}; ids.forEach(i => set[i] = 1);
+  const sh = msgSheet_(); const ci = MSG_COLS.indexOf(col) + 1;
+  readMsgs_().forEach(m => {
+    if (!set[m.id] || hasIn_(m[col], u.email)) return;
+    if (!(m.from === u.email || isFor_(m, u))) return;
+    sh.getRange(m._row, ci).setValue((m[col] ? m[col] + ',' : '') + u.email);
+  });
+  return { ok: true, unread: msgUnread_(u) };
 }
 
 /* ================= ตาราง ================= */
