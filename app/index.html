@@ -48,6 +48,8 @@ main{padding:calc(var(--hdr) + var(--safe-t) + 12px) 12px calc(var(--nav) + var(
 nav.bottom{position:fixed;bottom:0;left:0;right:0;height:calc(var(--nav) + var(--safe-b));padding-bottom:var(--safe-b);background:#fff;border-top:1px solid var(--line);display:flex;z-index:1000}
 nav.bottom button{flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;color:var(--mut);gap:2px;cursor:pointer}
 nav.bottom button b{font-size:21px;line-height:1;font-weight:400}
+nav.bottom button{position:relative}
+.nb{position:absolute;top:4px;left:50%;margin-left:6px;background:#dc2626;color:#fff;border-radius:99px;font-size:11px;font-weight:700;line-height:18px;min-width:18px;padding:0 5px;text-align:center}
 nav.bottom button.on{color:var(--pri);font-weight:700}
 .tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .fab{position:fixed;right:16px;bottom:calc(var(--nav) + var(--safe-b) + 16px);z-index:900;background:var(--pri);color:#fff;border:0;border-radius:999px;padding:14px 20px;font-size:16px;font-weight:700;box-shadow:0 4px 12px rgba(15,118,110,.4);cursor:pointer}
@@ -353,7 +355,7 @@ async function sync(manual){
     }
     const data=await api('list');await mergeServer(data);
     S.lastSync=Date.now();await idb.put('kv',S.lastSync,'lastSync');
-    if(manual)toast('ซิงก์ข้อมูลเรียบร้อย ✓');
+    if(manual)toast('ซิงก์ข้อมูลเรียบร้อย ✓');setPending(data.pending||0);
     const v=S.route.v;if(['map','list','dash','store','report'].includes(v))route();
   }catch(e){console.warn(e);if(manual)toast('ซิงก์ไม่สำเร็จ: '+e.message,4000);S.syncErr=e.message}
   finally{syncing=false;await refreshQueueN()}
@@ -366,6 +368,11 @@ async function mergeServer(data){
   S.stores=merge(S.stores,data.stores);S.inspections=merge(S.inspections,data.inspections);
   await idb.replaceAll('stores',S.stores);await idb.replaceAll('inspections',S.inspections);
 }
+function setPending(n){const prev=S.pending||0;S.pending=isAdmin()?n:0;
+  const b=$('nav.bottom button[data-v=settings]');let x=$('.nb',b);
+  if(S.pending){if(!x){x=document.createElement('span');x.className='nb';b.appendChild(x)}x.textContent=S.pending}else if(x)x.remove();
+  if(S.pending>prev){toast(`🔔 มีผู้สมัครใหม่รออนุมัติ ${S.pending} คน — แตะเพื่ออนุมัติ`,6000);const t=$('.toast');t.style.cursor='pointer';t.onclick=()=>{t.hidden=true;location.hash='#users'}}
+  const ub=$('#usersBtn');if(ub)ub.textContent=`👥 จัดการผู้ใช้ / อนุมัติผู้สมัคร${S.pending?` (รอ ${S.pending} คน)`:''}`}
 function updatePill(){const p=$('#syncPill');p.className='pill';
   if(syncing){p.textContent='⟳ กำลังซิงก์…';return}
   if(!navigator.onLine){p.textContent='📴 ออฟไลน์'+(S.queueN?` · รอส่ง ${S.queueN}`:'');p.classList.add('off');return}
@@ -871,7 +878,7 @@ async function doLogin(action,data){
   const last=await idb.get('kv','lastEmail');
   if(last&&last!==j.user.email){await clearAuth(true)}   // คนละบัญชีกับครั้งก่อน → ล้างข้อมูลเดิมในเครื่อง
   S.auth={token:j.token,exp:j.exp,user:j.user};await idb.put('kv',S.auth,'auth');await idb.put('kv',j.user.email,'lastEmail');
-  if(j.user.status==='approved'){toast('ยินดีต้อนรับ '+(j.user.name||j.user.email));location.hash='#map';route();sync(false)}
+  if(j.user.status==='approved'){toast('ยินดีต้อนรับ '+(j.user.name||j.user.email));if(!location.hash||location.hash==='#')location.hash='#map';route();sync(false)}
   else route();
 }
 async function logout(){
@@ -957,7 +964,7 @@ async function viewUsers(){
   let users;try{users=(await api('users')).users}catch(e){v.innerHTML=`<div class="empty">โหลดไม่สำเร็จ: ${esc(e.message)}<br>(ต้องเชื่อมต่ออินเทอร์เน็ต)</div>`;return}
   if(S.route.v!=='users')return;
   const ord={pending:0,approved:1,disabled:2};users.sort((a,b)=>ord[a.status]-ord[b.status]||(b.created||0)-(a.created||0));
-  const pend=users.filter(u=>u.status==='pending').length;
+  const pend=users.filter(u=>u.status==='pending').length;S.pending=pend;setPending(pend);
   const stB={pending:'b-yellow',approved:'b-green',disabled:'b-red'};
   v.innerHTML=`<div class="info">ผู้ใช้ทั้งหมด ${users.length} คน${pend?` · <b>รออนุมัติ ${pend} คน</b>`:''}<br><span class="small">ผู้ดูแลระบบ: จัดการผู้ใช้/ลบร้าน · เจ้าหน้าที่: เพิ่ม/แก้ไข/ตรวจ · ดูอย่างเดียว: ดูข้อมูลและรายงาน</span></div>
     ${users.map(u=>`<div class="card" data-email="${esc(u.email)}">
@@ -984,7 +991,7 @@ function viewSettings(){
         <div class="small muted" style="word-break:break-all">${esc(u.email)}</div><span class="badge b-green">${ROLE_T[u.role]||u.role}</span></div></div>
       <div class="small" style="margin:10px 0">${esc(u.position||'')}${u.unit?' · '+esc(u.unit):''}${u.phone?' · '+esc(u.phone):''}</div>
       <div class="btns"><button class="btn" data-act="profile">✏️ แก้ไขข้อมูลส่วนตัว</button><button class="btn danger" data-act="logout">ออกจากระบบ</button></div>
-      ${isAdmin()?'<a class="btn pri block" href="#users" style="margin-top:10px">👥 จัดการผู้ใช้ / อนุมัติผู้สมัคร</a>':''}
+      ${isAdmin()?`<a class="btn pri block" id="usersBtn" href="#users" style="margin-top:10px">👥 จัดการผู้ใช้ / อนุมัติผู้สมัคร${S.pending?` (รอ ${S.pending} คน)`:''}</a>`:''}
     </div>
     <div class="card"><h3>ค่าในเครื่องนี้</h3>
       <label class="f"><span>หน่วยงาน (แสดงบนแบบบันทึก)</span><input class="i" data-k="unit" value="${esc(st.unit||u.unit||'')}"></label>
