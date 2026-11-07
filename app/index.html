@@ -906,7 +906,8 @@ async function viewAuth(){
       ${u.status==='disabled'?'<div class="note" style="background:var(--red-l)">⛔ บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ</div>':
       '<div class="note">⏳ <b>ส่งคำขอสมัครใช้งานแล้ว</b><br>รอผู้ดูแลระบบอนุมัติ ระบบจะส่งอีเมลแจ้งเมื่อได้รับการอนุมัติ</div>'}
       <button class="btn pri block" id="acheck">⟳ ตรวจสอบสถานะอีกครั้ง</button>
-      <div class="btns" style="margin-top:8px"><button class="btn" id="aedit">✏️ แก้ไขข้อมูลสมัคร</button><button class="btn" id="aout">ออกจากระบบ</button></div>`);
+      <div class="btns" style="margin-top:8px"><button class="btn" id="aedit">✏️ แก้ไขข้อมูลสมัคร</button><button class="btn" id="aout">ออกจากระบบ</button></div>
+      <p class="small" style="text-align:center;margin:12px 0 0"><a href="manual.html" style="color:var(--pri);font-weight:700">📖 อ่านคู่มือการใช้งานระหว่างรอ</a></p>`);
     $('#acheck').onclick=async e=>{e.target.disabled=true;try{await api('me');if(authed()){toast('ได้รับการอนุมัติแล้ว ✓');location.hash='#map';route();sync(false)}else toast('ยังไม่ได้รับการอนุมัติ')}catch(err){if(err.code!=='NOT_APPROVED')toast(err.message)}e.target.disabled=false};
     $('#aedit').onclick=()=>{S.route.editProfile=true;viewRegister()};
     $('#aout').onclick=async()=>{await clearAuth(true);await idb.del('kv','lastEmail');route()};
@@ -919,7 +920,7 @@ async function viewAuth(){
       <label class="f"><span>รหัส 6 หลัก</span><input class="i" id="acode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="font-size:24px;letter-spacing:8px;text-align:center"></label>
       <button class="btn pri block" id="averify">เข้าสู่ระบบ</button><button class="btn block" id="aback" style="margin-top:8px">เปลี่ยนอีเมล / ส่งรหัสใหม่</button></div>
     <p class="small muted" style="text-align:center;margin:16px 0 0">ผู้ใช้ใหม่: เข้าสู่ระบบครั้งแรกแล้วกรอกข้อมูลสมัคร<br>รอผู้ดูแลระบบอนุมัติก่อนใช้งาน</p>
-    <p class="small" style="text-align:center;margin:8px 0 0"><a href="#" id="areset" class="muted">เปลี่ยนเซิร์ฟเวอร์</a></p>`);
+    <p class="small" style="text-align:center;margin:8px 0 0"><a href="manual.html" style="color:var(--pri);font-weight:700">📖 คู่มือการใช้งาน</a> · <a href="#" id="areset" class="muted">เปลี่ยนเซิร์ฟเวอร์</a></p>`);
   $('#areset').onclick=async e=>{e.preventDefault();if(!confirm('ล้างการตั้งค่าเซิร์ฟเวอร์?'))return;S.settings.serverUrl='';S.server=null;await saveSettings();await idb.del('kv','server');route()};
   const send=async()=>{const em=$('#aemail').value.trim().toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)){toast('กรุณาใส่อีเมลให้ถูกต้อง');return}
     const b=$('#asend');b.disabled=true;b.textContent='⏳ กำลังส่ง…';
@@ -1008,8 +1009,10 @@ function viewSettings(){
     </div>
     ${isAdmin()?`<div class="card"><h3>💾 สำรองข้อมูล (ผู้ดูแล)</h3>
       <div class="btns"><button class="btn" data-act="backup">⬇ สำรองข้อมูล (JSON)</button><button class="btn" data-act="restore">⬆ นำเข้าข้อมูลสำรอง</button></div></div>`:''}
+    <div class="card"><h3>📖 คู่มือการใช้งาน</h3>
+      <div class="btns"><a class="btn pri" href="manual.html">📖 เปิดคู่มือ</a><a class="btn" href="manual.pdf" download="คู่มือการใช้งาน ShopStation.pdf">⬇ ดาวน์โหลด PDF</a></div></div>
     <div class="card small muted">
-      <b>ShopStation</b> v2.0 — ร้าน ${S.stores.length} · ผลตรวจ ${S.inspections.length} รายการ · ${navigator.onLine?'ออนไลน์':'ออฟไลน์'}<br>
+      <b>ShopStation</b> v2.1 — ร้าน ${S.stores.length} · ผลตรวจ ${S.inspections.length} รายการ · ${navigator.onLine?'ออนไลน์':'ออฟไลน์'}<br>
       <span id="installHint"></span>
     </div>`;
   const ih=$('#installHint');const standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone;
