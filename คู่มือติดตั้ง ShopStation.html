@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>คู่มือติดตั้ง ShopStation</title>
+<style>
+body{font-family:"Sarabun",Tahoma,sans-serif;max-width:820px;margin:0 auto;padding:16px;line-height:1.7;color:#1f2937;background:#fff}
+h1{color:#0f766e;font-size:26px;margin-bottom:4px}h2{color:#0f766e;border-bottom:2px solid #ccfbf1;padding-bottom:4px;margin-top:32px}
+code,pre{background:#f3f4f6;border-radius:6px;padding:1px 6px;font-size:14px}pre{padding:10px;overflow-x:auto}
+.box{background:#ecfdf5;border-left:4px solid #0f766e;padding:10px 14px;border-radius:6px;margin:12px 0}
+.warn{background:#fef3c7;border-left:4px solid #d97706;padding:10px 14px;border-radius:6px;margin:12px 0}
+ol li{margin-bottom:6px} table{border-collapse:collapse;width:100%}td,th{border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top}th{background:#f9fafb}
+</style></head><body>
+<h1>🏪 ShopStation — คู่มือติดตั้งและใช้งาน</h1>
+<p>ระบบเก็บข้อมูลร้านค้า ร้านชำ สถานบริการในพื้นที่ และบันทึกผลตรวจผลิตภัณฑ์สุขภาพ ใช้ได้ทั้ง Android และ iPhone/iPad ข้อมูลเชื่อมกันออนไลน์ผ่าน Google Sheets มีแผนที่ และนำทางด้วย Google Maps</p>
+
+<div class="box"><b>โครงสร้างระบบ</b><br>
+📱 <b>แอป (โฟลเดอร์ app)</b> — เป็นเว็บแอปแบบติดตั้งได้ (PWA) เปิดผ่านลิงก์ครั้งเดียว แล้วกด “เพิ่มไปยังหน้าจอโฮม” จะได้ไอคอนเหมือนแอปทั่วไป ใช้ได้แม้ไม่มีสัญญาณ แล้วส่งข้อมูลขึ้นเองเมื่อกลับมาออนไลน์<br>
+☁ <b>หลังบ้าน (backend/Code.gs)</b> — Google Apps Script ผูกกับ Google Sheets ของหน่วยงาน เก็บข้อมูลร้านค้า (ชีต Stores) ผลการตรวจ (ชีต Inspections) และรูปภาพลง Google Drive ไม่มีค่าใช้จ่าย</div>
+
+<table><tr><th>ไฟล์</th><th>หน้าที่</th></tr>
+<tr><td>app/index.html</td><td>ตัวแอปทั้งหมด (แบบตรวจแก้ได้ที่ส่วน <code>CHECK</code> ด้านบนของสคริปต์)</td></tr>
+<tr><td>app/manifest.json, sw.js, icon-*.png</td><td>ทำให้ติดตั้งลงมือถือและทำงานออฟไลน์ได้</td></tr>
+<tr><td>backend/Code.gs</td><td>โค้ดหลังบ้านสำหรับวางใน Google Apps Script</td></tr></table>
+
+<h2>ขั้นที่ 1 — สร้างหลังบ้าน (Google Sheets + Apps Script) ~10 นาที</h2>
+<ol>
+<li>ใช้บัญชี Google ของหน่วยงาน เข้า <b>sheets.new</b> สร้างสเปรดชีตใหม่ ตั้งชื่อ เช่น <i>ShopStation ข้อมูลร้านค้า</i></li>
+<li>เมนู <b>ส่วนขยาย → Apps Script</b> → ลบโค้ดเดิม แล้ววางเนื้อหาทั้งหมดจากไฟล์ <code>backend/Code.gs</code> → กดบันทึก 💾</li>
+<li>เลือกฟังก์ชัน <b>setup</b> ในแถบด้านบน → กด <b>เรียกใช้</b> → อนุญาตสิทธิ์ (ถ้าขึ้น “Google ไม่ได้ยืนยันแอปนี้” ให้กด ขั้นสูง → ไปที่ ... (ไม่ปลอดภัย) เพราะเป็นสคริปต์ของเราเอง)</li>
+<li>ดู <b>บันทึกการดำเนินการ</b> ด้านล่าง จะมีบรรทัด <code>API Key ...: xxxxxxxxxxxx</code> — จดรหัสนี้ไว้</li>
+<li>กด <b>การทำให้ใช้งานได้ → การทำให้ใช้งานได้รายการใหม่</b> → ไอคอนเฟือง เลือก <b>เว็บแอป</b><br>
+  • ดำเนินการในฐานะ: <b>ฉัน</b><br>• ผู้ที่มีสิทธิ์เข้าถึง: <b>ทุกคน</b><br>→ กด ทำให้ใช้งานได้ → คัดลอก <b>URL เว็บแอป</b> (ลงท้ายด้วย <code>/exec</code>)</li>
+</ol>
+<div class="warn">“ทุกคน” หมายถึงแอปเรียก URL นี้ได้โดยไม่ต้องล็อกอิน Google แต่ทุกคำสั่งต้องมี <b>API Key</b> ที่ถูกต้อง แจก Key เฉพาะเจ้าหน้าที่ หากรหัสหลุด ให้เรียกฟังก์ชัน <code>resetApiKey</code> แล้วแจ้งรหัสใหม่<br>
+ถ้าแก้โค้ด Code.gs ภายหลัง: <b>การทำให้ใช้งานได้ → จัดการการทำให้ใช้งานได้ → ✏️ → เวอร์ชัน: เวอร์ชันใหม่</b> (URL เดิมจะใช้ต่อได้)</div>
+
+<h2>ขั้นที่ 2 — นำแอปขึ้นเว็บ (ฟรี มี https) ~10 นาที</h2>
+<p>มือถือต้องเปิดแอปผ่านลิงก์ <b>https</b> จึงจะใช้ GPS กล้อง และติดตั้งได้ แนะนำ <b>GitHub Pages</b>:</p>
+<ol>
+<li>สมัคร/เข้าสู่ระบบ <b>github.com</b> → ปุ่ม <b>New repository</b> ตั้งชื่อ เช่น <code>shopstation</code> เลือก <b>Public</b> → Create</li>
+<li>กด <b>uploading an existing file</b> → ลากไฟล์ทั้งหมดใน <b>โฟลเดอร์ app</b> (index.html, manifest.json, sw.js, icon-*.png) ไปวาง → Commit changes</li>
+<li>ไปที่ <b>Settings → Pages</b> → Source: <i>Deploy from a branch</i>, Branch: <b>main</b> / (root) → Save</li>
+<li>รอ 1–2 นาที จะได้ลิงก์ <code>https://ชื่อผู้ใช้.github.io/shopstation/</code> — แจกลิงก์นี้ให้ทีม</li>
+</ol>
+<p class="small">ทางเลือกอื่น: Netlify (app.netlify.com → Add new site → Deploy manually → ลากโฟลเดอร์ app) หรือ Firebase Hosting</p>
+<div class="box">ลิงก์แอปเปิดเผยได้ เพราะข้อมูลจริงอยู่ใน Google Sheets และเข้าถึงได้ด้วย API Key เท่านั้น</div>
+
+<h2>ขั้นที่ 3 — ติดตั้งบนมือถือและตั้งค่า</h2>
+<ol>
+<li><b>Android</b>: เปิดลิงก์ด้วย Chrome → เมนู ⋮ → <b>ติดตั้งแอป</b> (หรือ เพิ่มไปยังหน้าจอหลัก)<br>
+<b>iPhone/iPad</b>: เปิดลิงก์ด้วย <b>Safari</b> → ปุ่มแชร์ ⬆ → <b>เพิ่มไปยังหน้าจอโฮม</b></li>
+<li>เปิดแอป → แท็บ <b>⚙️ ตั้งค่า</b> → ใส่ชื่อผู้ตรวจ หน่วยงาน รายชื่อหมู่บ้าน</li>
+<li>ใส่ <b>Web App URL</b> และ <b>API Key</b> จากขั้นที่ 1 → กด <b>ทดสอบการเชื่อมต่อ</b> → ขึ้น “เชื่อมต่อสำเร็จ ✓”</li>
+<li>กด <b>📍 ตั้งจุดกลางแผนที่เป็นตำแหน่งปัจจุบัน</b> ขณะอยู่ในพื้นที่ รพ.สต.</li>
+<li>ครั้งแรกที่เปิดให้ <b>อนุญาตตำแหน่ง (Location)</b> และกล้อง</li>
+</ol>
+
+<h2>การใช้งาน</h2>
+<table>
+<tr><th>เมนู</th><th>ใช้ทำอะไร</th></tr>
+<tr><td>🗺️ แผนที่</td><td>หมุดร้านทุกร้าน สีตามผลตรวจล่าสุด (เขียว ผ่าน · ส้ม ต้องปรับปรุง · แดง ไม่ผ่าน · เทา ยังไม่ตรวจ) แตะหมุด → รายละเอียด / นำทางด้วย Google Maps สลับภาพดาวเทียมได้ที่มุมขวาบน</td></tr>
+<tr><td>🏪 ร้านค้า</td><td>ค้นหา กรองตามหมู่บ้าน/ผลตรวจ/ประเภท · ＋ เพิ่มร้านค้า: ข้อมูลร้าน (หมวด 1) ภาพหน้าร้าน พิกัดจาก GPS / ปักหมุดบนแผนที่ / วางพิกัดจาก Google Maps</td></tr>
+<tr><td>📝 ตรวจประเมิน</td><td>แบบตรวจหมวด 2 (ยา อาหาร + Test Kit เครื่องสำอาง วัตถุอันตราย) หมวด 3 (สุขวิทยา) หมวด 4 (แหล่งสินค้า อบรม คบส. ผลรอบก่อน — แอปดึงผลครั้งก่อนมาแสดงให้อัตโนมัติ) · ปุ่ม “ผ่านทั้งหมด” / “ไม่มีจำหน่าย” ช่วยให้ตรวจเร็ว · สร้างข้อเสนอแนะอัตโนมัติ · ถ่ายรูปหลักฐาน · นัดตรวจติดตาม</td></tr>
+<tr><td>🖨 ผลการตรวจ</td><td>แบบบันทึกพร้อมช่องลงชื่อ ผู้ประกอบการ/เจ้าหน้าที่ — กดพิมพ์หรือบันทึกเป็น PDF ส่งให้ร้านได้</td></tr>
+<tr><td>📊 ภาพรวม</td><td>สรุปจำนวนร้านตามผลตรวจ รายหมู่บ้าน ข้อที่พบปัญหาบ่อย ร้านที่ถึงนัดติดตาม · ส่งออก CSV เปิดด้วย Excel</td></tr>
+</table>
+<div class="box"><b>เกณฑ์ผลประเมิน</b> (คิดจากข้อที่ตอบ ผ่าน/ไม่ผ่าน ไม่นับ “ไม่มี”)<br>
+≥ 80% = <b style="color:#15803d">ผ่าน</b> · 60–79% = <b style="color:#b45309">ต้องปรับปรุง</b> · &lt; 60% = <b style="color:#b91c1c">ไม่ผ่าน</b><br>
+พบ <b>ข้อสำคัญ</b> ข้อใดข้อหนึ่ง (ยาชุด ยาซองใส ยาปฏิชีวนะ ยาแก้แพ้ฤทธิ์แรง ยาปนสเตียรอยด์ สินค้าหมดอายุ เครื่องสำอางอันตราย หรือ Test Kit พบสาร) = <b style="color:#b91c1c">ไม่ผ่าน</b> ทันที<br>
+แก้ตัวเลขเกณฑ์ได้ที่ <code>PASS_PCT</code>, <code>FAIR_PCT</code> ใน index.html</div>
+
+<h2>การทำงานออฟไลน์และการซิงก์</h2>
+<ul>
+<li>ทุกการบันทึกเก็บในเครื่องก่อนเสมอ ป้ายมุมขวาบนบอกสถานะ: <b>☁ ซิงก์แล้ว</b> · <b>⬆ รอส่ง n</b> · <b>📴 ออฟไลน์</b></li>
+<li>เมื่อมีสัญญาณ แอปส่งข้อมูลและรูปขึ้น Google Sheets/Drive อัตโนมัติ และดึงข้อมูลจากเครื่องอื่นมาทุก 2 นาที (แตะป้ายเพื่อซิงก์ทันที)</li>
+<li>รูปถูกย่อขนาดอัตโนมัติ (ประมาณ 100–200 KB/รูป) เก็บในโฟลเดอร์ <i>ShopStation Photos</i> ข้าง ๆ ไฟล์ Sheets</li>
+<li>ถ้ายังไม่ใส่ URL เซิร์ฟเวอร์ แอปใช้แบบเครื่องเดียวได้ (ควรกด “สำรองข้อมูล” เป็นระยะ)</li>
+</ul>
+
+<h2>Google Maps API Key (ไม่บังคับ)</h2>
+<p>ค่าเริ่มต้นใช้แผนที่ OpenStreetMap + ภาพดาวเทียม Esri ฟรี ส่วนปุ่ม “นำทาง” และลิงก์พิกัดเปิดแอป Google Maps ได้เสมอ หากต้องการให้แผนที่ในแอปเป็น Google Maps: เข้า console.cloud.google.com → สร้างโปรเจกต์ → เปิด <b>Maps JavaScript API</b> → สร้าง API Key (ตั้งข้อจำกัดเป็น HTTP referrer ของลิงก์แอป) → ใส่ในหน้าตั้งค่า (ต้องผูกบัตรเครดิต แต่มีโควตาฟรีรายเดือน)</p>
+
+<h2>ต่อยอด: ทำเป็นไฟล์ติดตั้ง Play Store / App Store</h2>
+<p>เมื่อแอปออนไลน์แล้ว เข้า <b>pwabuilder.com</b> ใส่ลิงก์แอป → สร้างแพ็กเกจ Android (.aab/.apk) ได้ทันที ส่วน iOS ต้องใช้ Mac และบัญชี Apple Developer (99 USD/ปี) — สำหรับใช้งานภายในหน่วยงาน การติดตั้งผ่าน “เพิ่มไปยังหน้าจอโฮม” เพียงพอและอัปเดตได้ทันทีโดยไม่ต้องผ่านสโตร์</p>
+
+<h2>ข้อควรระวังด้านข้อมูล</h2>
+<ul><li>ข้อมูลเจ้าของร้าน/เบอร์โทรเป็นข้อมูลส่วนบุคคล — แชร์ Google Sheets เฉพาะผู้เกี่ยวข้อง</li>
+<li>รูปใน Drive ตั้งเป็น “ทุกคนที่มีลิงก์ดูได้” เพื่อให้แอปแสดงรูปได้ ลิงก์สุ่มเดายาก แต่ไม่ควรถ่ายรูปบุคคลหรือเอกสารส่วนตัว</li></ul>
+<p style="color:#6b7280;font-size:14px;margin-top:30px">ShopStation v1.0 · พัฒนาสำหรับ รพ.สต.บ้านดอนกลอย อบจ.ยโสธร</p>
+</body></html>
