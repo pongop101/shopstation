@@ -271,7 +271,26 @@ const authed=()=>!!(S.auth&&S.auth.token&&me().status==='approved');
 const canEdit=()=>authed()&&['superadmin','unitadmin','staff'].includes(me().role);
 const isAdmin=()=>authed()&&['superadmin','unitadmin'].includes(me().role);
 const isSuper=()=>authed()&&me().role==='superadmin';
-const unitName=id=>((S.units||[]).find(u=>u.id===id)||{}).name||'';
+const unitObj=id=>(S.units||[]).find(u=>u.id===id)||null;
+const shortUnit=n=>String(n||'').replace('โรงพยาบาลส่งเสริมสุขภาพตำบล','รพ.สต.').replace('ศูนย์สุขภาพชุมชน','ศสช.');
+const unitName=id=>shortUnit((unitObj(id)||{}).name||'');
+const unitFull=id=>(unitObj(id)||{}).name||'';
+const unitLabel=u=>(u.code?u.code+' : ':'')+shortUnit(u.name);
+const unitOpts=(sel,excl)=>(S.units||[]).filter(u=>u.id!==excl).map(u=>`<option value="${u.id}" ${u.id===sel?'selected':''}>${esc(unitLabel(u))}</option>`).join('');
+/* ช่องค้นหาหน่วยบริการ: พิมพ์รหัส 5 หลัก หรือชื่อ */
+function unitPicker(id,sel,excl,disabled){const u=unitObj(sel);
+  return `<input class="i" id="${id}" list="${id}_dl" autocomplete="off" ${disabled?'disabled':''} placeholder="พิมพ์รหัส 5 หลัก หรือชื่อ เช่น 03827 หรือ ดอนกลอย" value="${u?esc(u.code?u.code+' : '+u.name:u.name):''}">
+  <datalist id="${id}_dl">${(S.units||[]).filter(x=>x.id!==excl).map(x=>`<option value="${esc(x.code?x.code+' : '+x.name:x.name)}">`).join('')}</datalist>
+  <div class="small" id="${id}_ok" style="margin-top:4px"></div>`}
+function pickUnitId(id){const el=$('#'+id);if(!el)return '';const v=el.value.trim();if(!v)return '';
+  const code=(v.match(/^(\d{5})/)||[])[1];const L=S.units||[];
+  let u=code?L.find(x=>x.code===code):null;
+  if(!u)u=L.find(x=>x.name===v||(x.code?x.code+' : '+x.name:x.name)===v);
+  if(!u){const q=v.replace(/\s/g,'');const m=L.filter(x=>(x.name+x.code).replace(/\s/g,'').includes(q));if(m.length===1)u=m[0]}
+  return u?u.id:''}
+function bindUnitPicker(id){const el=$('#'+id);if(!el)return;const f=()=>{const uid=pickUnitId(id);const o=$('#'+id+'_ok');if(!o)return;
+  o.innerHTML=uid?`<span class="ok">✓ ${esc(unitFull(uid))} (รหัส ${esc((unitObj(uid)||{}).code||'-')})</span>`:(el.value.trim()?'<span class="ng">ไม่พบหน่วยบริการนี้ — เลือกจากรายการที่แสดง</span>':'')};
+  el.addEventListener('input',f);el.addEventListener('change',f);f()}
 const myUnitName=()=>unitName(me().unitId)||me().unit||'';
 const DEF_SET={inspector:'',unit:'',serverUrl:CONFIG.SERVER_URL,gmapKey:'',villages:'',center:[15.7926,104.1453],zoom:12};
 async function saveSettings(){await idb.put('kv',S.settings,'settings')}
@@ -511,7 +530,7 @@ function viewList(){
       <select class="i" id="fv"><option value="">ทุกหมู่บ้าน</option>${vs.map(v=>`<option ${v===LF.vil?'selected':''}>${esc(v)}</option>`).join('')}</select>
       <select class="i" id="fl"><option value="">ทุกผลตรวจ</option>${Object.entries(LEVELS).map(([k,v])=>`<option value="${k}" ${k===LF.lv?'selected':''}>${v.t}</option>`).join('')}</select>
       <select class="i" id="ft"><option value="">ทุกประเภท</option>${STORE_TYPES.map(v=>`<option ${v===LF.type?'selected':''}>${esc(v)}</option>`).join('')}</select>
-      ${isSuper()?`<select class="i" id="fu"><option value="">ทุกหน่วยบริการ</option>${(S.units||[]).map(u=>`<option value="${u.id}" ${u.id===LF.unit?'selected':''}>${esc(u.name)}</option>`).join('')}<option value="-" ${LF.unit==='-'?'selected':''}>(ยังไม่ระบุหน่วย)</option></select>`:''}
+      ${isSuper()?`<select class="i" id="fu"><option value="">ทุกหน่วยบริการ</option>${unitOpts(LF.unit)}<option value="-" ${LF.unit==='-'?'selected':''}>(ยังไม่ระบุหน่วย)</option></select>`:''}
     </div><div id="items"></div>`;
   const draw=()=>{const q=LF.q.toLowerCase();
     const arr=S.stores.filter(s=>(!LF.unit||(LF.unit==='-'?!s.unitId:s.unitId===LF.unit))&&(!LF.vil||s.village===LF.vil)&&(!LF.type||s.type===LF.type)&&(!LF.lv||levelOf(s.id)===LF.lv)&&
@@ -583,7 +602,7 @@ function viewEdit(id){
   const opt=(arr,v)=>{const a=arr.includes(v)||!v?arr:[...arr,v];return a.map(x=>`<option ${x===v?'selected':''}>${esc(x)}</option>`).join('')};
   $('#view').innerHTML=`
     <div class="card"><h3>1. ข้อมูลพื้นฐานของร้านค้า (Store Profile)</h3>
-      ${isSuper()?`<label class="f"><span>หน่วยบริการ *</span><select class="i" name="unitId">${(S.units||[]).map(u=>`<option value="${u.id}" ${u.id===(s.unitId||me().unitId)?'selected':''}>${esc(u.name)}</option>`).join('')}</select></label>`:
+      ${isSuper()?`<label class="f"><span>หน่วยบริการ *</span><select class="i" name="unitId">${unitOpts(s.unitId||me().unitId)}</select></label>`:
         `<div class="small muted" style="margin:-4px 0 10px">หน่วยบริการ: <b>${esc(unitName(s.unitId)||myUnitName()||'-')}</b></div>`}
       <div class="grid2">
         <label class="f"><span>หมู่บ้าน *</span><input class="i" name="village" list="vlist" value="${esc(s.village)}" placeholder="เช่น บ้านดอนกลอย"><datalist id="vlist">${vs.map(v=>`<option value="${esc(v)}">`).join('')}</datalist></label>
@@ -852,7 +871,7 @@ function viewDash(){
       ${Object.entries(obj).sort((a,b)=>a[0].localeCompare(b[0],'th')).map(([k,o])=>`<tr><td>${esc(k)}</td><td class="n">${o.n}</td><td class="n">${o.n-o.none}</td><td class="n">${o.green}</td><td class="n">${o.yellow}</td><td class="n">${o.red}</td><td style="width:18%"><div class="stack">${seg(o,o.n)}</div></td></tr>`).join('')}</table></div></div>`:'';
   $('#view').innerHTML=`
     <div class="card noprint"><div class="grid2">
-      ${isSuper()?`<label class="f"><span>หน่วยบริการ</span><select class="i" id="rfu"><option value="">ทุกหน่วยบริการ</option>${(S.units||[]).map(u=>`<option value="${u.id}" ${u.id===RF.unit?'selected':''}>${esc(u.name)}</option>`).join('')}</select></label>`:
+      ${isSuper()?`<label class="f"><span>หน่วยบริการ</span><select class="i" id="rfu"><option value="">ทุกหน่วยบริการ</option>${unitOpts(RF.unit)}</select></label>`:
         `<label class="f"><span>หน่วยบริการ</span><input class="i" value="${esc(uName||'-')}" disabled></label>`}
       <label class="f"><span>ช่วงเวลา</span><select class="i" id="rfp"><option value="">— กำหนดเอง —</option><option value="fy">ปีงบประมาณนี้</option><option value="m">เดือนนี้</option><option value="q">3 เดือนล่าสุด</option><option value="all">ทั้งหมด</option></select></label>
       <label class="f" style="margin:0"><span>ตั้งแต่วันที่</span><input class="i" type="date" id="rff" value="${RF.from}"></label>
@@ -860,7 +879,7 @@ function viewDash(){
       <div class="btns" style="margin-top:12px"><button class="btn pri" data-act="print">🖨 พิมพ์ / PDF รายงาน</button><button class="btn" data-act="csvI">⬇ ผลตรวจช่วงนี้ (CSV)</button><button class="btn" data-act="csvS">⬇ ข้อมูลร้านค้า (CSV)</button></div>
     </div>
     <div class="card" style="text-align:center"><h2 style="margin:0">รายงานการตรวจร้านค้าและผลิตภัณฑ์สุขภาพ</h2>
-      <div><b>${esc(uName||'-')}</b></div><div class="small muted">ระหว่างวันที่ ${thDate(RF.from)} – ${thDate(RF.to)} · พิมพ์เมื่อ ${thDateTime(Date.now())}</div></div>
+      <div><b>${esc(RF.unit?((unitObj(RF.unit)||{}).code?unitObj(RF.unit).code+' ':'')+unitFull(RF.unit):uName||'-')}</b></div><div class="small muted">ระหว่างวันที่ ${thDate(RF.from)} – ${thDate(RF.to)} · พิมพ์เมื่อ ${thDateTime(Date.now())}</div></div>
     <div class="stats">
       <div class="stat"><b>${stores.length}</b><span>ร้านค้าทั้งหมด</span></div>
       <div class="stat"><b>${done}</b><span>ร้านที่ตรวจแล้ว (${cov}%)</span></div>
@@ -999,15 +1018,17 @@ async function viewRegister(){
   authShell(`<h3 style="margin:0 0 4px">📝 ข้อมูลผู้สมัครใช้งาน</h3><div class="small muted" style="margin-bottom:12px">${esc(u.email)}</div>
     <label class="f"><span>ชื่อ-นามสกุล *</span><input class="i" id="rname" value="${esc(u.name||'')}"></label>
     <label class="f"><span>ตำแหน่ง *</span><input class="i" id="rpos" value="${esc(u.position||'')}" placeholder="เช่น นักวิชาการสาธารณสุข, อสม."></label>
-    ${units.length?`<label class="f"><span>หน่วยบริการ *</span><select class="i" id="runit" ${lockUnit?'disabled':''}><option value="">— เลือกหน่วยบริการ —</option>${units.map(x=>`<option value="${x.id}" ${x.id===u.unitId?'selected':''}>${esc(x.name)}</option>`).join('')}</select>
+    ${units.length?`<label class="f"><span>หน่วยบริการ * <span class="muted" style="font-weight:400">(รหัสหน่วยบริการ 5 หลัก)</span></span>${unitPicker('runit',u.unitId,'',lockUnit)}
       ${lockUnit?'<span class="small muted">เปลี่ยนหน่วยบริการได้โดยผู้ดูแลระบบสูงสุด</span>':'<span class="small muted">ไม่พบหน่วยของคุณ? แจ้งผู้ดูแลระบบให้เพิ่มหน่วยบริการ</span>'}</label>`:
       `<label class="f"><span>หน่วยงาน</span><input class="i" id="runit2" value="${esc(u.unit||'')}"></label>`}
     <label class="f"><span>เบอร์โทรศัพท์ *</span><input class="i" id="rphone" type="tel" value="${esc(u.phone||'')}"></label>
     <button class="btn pri block" id="rsave">${u.status==='approved'?'บันทึก':'ส่งคำขอสมัครใช้งาน'}</button>
     <button class="btn block" id="rcancel" style="margin-top:8px">${u.status==='approved'?'ยกเลิก':'ออกจากระบบ'}</button>`);
+  bindUnitPicker('runit');
   $('#rsave').onclick=async e=>{const p={name:$('#rname').value.trim(),position:$('#rpos').value.trim(),phone:$('#rphone').value.trim()};
-    if($('#runit')&&!lockUnit)p.unitId=$('#runit').value;if($('#runit2'))p.unit=$('#runit2').value.trim();
-    if(!p.name||!p.position||!p.phone||($('#runit')&&!lockUnit&&!p.unitId)){toast('กรุณากรอกข้อมูลที่มี * ให้ครบ');return}
+    if($('#runit')&&!lockUnit)p.unitId=pickUnitId('runit');if($('#runit2'))p.unit=$('#runit2').value.trim();
+    if($('#runit')&&!lockUnit&&!p.unitId){toast('กรุณาเลือกหน่วยบริการจากรายการ (พิมพ์รหัส 5 หลักหรือชื่อ)',4000);$('#runit').focus();return}
+    if(!p.name||!p.position||!p.phone){toast('กรุณากรอกข้อมูลที่มี * ให้ครบ');return}
     e.target.disabled=true;try{const j=await api('register',{profile:p});S.auth.user=j.user;await idb.put('kv',S.auth,'auth');S.route.editProfile=false;toast('บันทึกแล้ว ✓');
       if(authed()){location.hash='#settings'}route()}catch(err){toast(err.message,4000)}e.target.disabled=false};
   $('#rcancel').onclick=async()=>{S.route.editProfile=false;if(authed()){location.hash='#settings';route()}else{await clearAuth(true);await idb.del('kv','lastEmail');route()}};
@@ -1018,7 +1039,7 @@ const UF={unit:''};
 async function viewUsers(){
   setHeader('👥 จัดการผู้ใช้',isSuper()?'ทุกหน่วยบริการ':myUnitName(),true);const v=$('#view');
   v.innerHTML='<div class="empty">⏳ กำลังโหลดรายชื่อผู้ใช้…</div>';
-  let users,units;try{const j=await api('users');users=j.users;units=j.units||[];S.units=units.map(u=>({id:u.id,name:u.name}));await idb.put('kv',S.units,'units')}
+  let users,units;try{const j=await api('users');users=j.users;units=j.units||[];S.units=units.map(u=>({id:u.id,name:u.name,code:u.code||''}));await idb.put('kv',S.units,'units')}
   catch(e){v.innerHTML=`<div class="empty">โหลดไม่สำเร็จ: ${esc(e.message)}<br>(ต้องเชื่อมต่ออินเทอร์เน็ต)</div>`;return}
   if(S.route.v!=='users')return;
   const ord={pending:0,approved:1,disabled:2};users.sort((a,b)=>ord[a.status]-ord[b.status]||(b.created||0)-(a.created||0));
@@ -1028,15 +1049,15 @@ async function viewUsers(){
   const roleOpts=u=>(isSuper()?['unitadmin','staff','viewer']:['staff','viewer']).map(k=>`<option value="${k}" ${u.role===k?'selected':''}>${ROLE_T[k]}</option>`).join('');
   const canManage=u=>u.email!==me().email&&u.role!=='superadmin'&&(isSuper()||(u.unitId===me().unitId&&u.role!=='unitadmin'));
   v.innerHTML=`${isSuper()?`<div class="card"><h3>🏥 หน่วยบริการ (${units.length})</h3>
-      <table class="t">${units.map(x=>`<tr data-unit="${x.id}"><td>${esc(x.name)}<div class="small muted">ผู้ใช้ ${users.filter(u=>u.unitId===x.id).length} คน · ร้าน ${S.stores.filter(s=>s.unitId===x.id).length} ร้าน</div></td>
-        <td class="n"><button class="btn sm" data-u="ren">แก้ชื่อ</button> <button class="btn sm danger" data-u="del">ลบ</button></td></tr>`).join('')}</table>
-      <div class="row" style="margin-top:10px"><input class="i grow" id="newUnit" placeholder="ชื่อหน่วยบริการใหม่ เช่น รพ.สต.บ้าน..."><button class="btn pri" data-u="add">＋ เพิ่ม</button></div></div>`:''}
+      <div class="tw" style="max-height:320px;overflow-y:auto"><table class="t">${units.map(x=>`<tr data-unit="${x.id}"><td><b>${esc(x.code||'-')}</b> ${esc(x.name)}<div class="small muted">ผู้ใช้ ${users.filter(u=>u.unitId===x.id).length} คน · ร้าน ${S.stores.filter(s=>s.unitId===x.id).length} ร้าน</div></td>
+        <td class="n"><button class="btn sm" data-u="ren">แก้ไข</button> <button class="btn sm danger" data-u="del">ลบ</button></td></tr>`).join('')}</table></div>
+      <div class="row" style="margin-top:10px"><input class="i" id="newCode" inputmode="numeric" maxlength="5" placeholder="รหัส 5 หลัก" style="width:120px"><input class="i grow" id="newUnit" placeholder="ชื่อหน่วยบริการใหม่"><button class="btn pri" data-u="add">＋ เพิ่ม</button></div></div>`:''}
     ${(()=>{const inc=users.filter(u=>u.transferTo&&(isSuper()||u.transferTo===me().unitId));return inc.length?`<div class="card" style="border:2px solid #f59e0b"><h3>🔁 คำขอย้ายหน่วยบริการ (${inc.length})</h3>
       ${inc.map(u=>`<div class="item" data-email="${esc(u.email)}"><b>${esc(u.name||u.email)}</b> <span class="small muted">${esc(u.email)}</span><div class="small">${esc(u.position||'-')} · จาก <b>${esc(unitName(u.unitId)||u.unit||'-')}</b> → ไป <b>${esc(unitName(u.transferTo))}</b><br><span class="muted">ขอโดย ${esc(u.transferBy===u.email?'เจ้าตัว':u.transferBy)} · ${thDateTime(u.transferAt)}</span></div>
         <div class="row" style="margin-top:6px"><button class="btn pri sm" data-xd="1">✓ อนุมัติให้ย้ายเข้า</button><button class="btn danger sm" data-xd="0">ไม่อนุมัติ</button></div></div>`).join('')}</div>`:''})()}
     <div class="info">ผู้ใช้ ${users.length} คน${pend?` · <b>รออนุมัติ ${pend} คน</b>`:''}<br>
       <span class="small">${isSuper()?'ผู้ดูแลระบบสูงสุด: จัดการได้ทุกหน่วย กำหนดผู้ดูแลหน่วยบริการและย้ายหน่วยได้':'ผู้ดูแลหน่วยบริการ: อนุมัติ/ระงับ/ลบ เจ้าหน้าที่ในหน่วยของคุณ'}</span></div>
-    ${isSuper()?`<select class="i" id="ufu" style="margin-bottom:10px"><option value="">ทุกหน่วยบริการ</option>${units.map(x=>`<option value="${x.id}" ${x.id===UF.unit?'selected':''}>${esc(x.name)}</option>`).join('')}<option value="-" ${UF.unit==='-'?'selected':''}>(ยังไม่ระบุหน่วย)</option></select>`:''}
+    ${isSuper()?`<select class="i" id="ufu" style="margin-bottom:10px"><option value="">ทุกหน่วยบริการ</option>${unitOpts(UF.unit)}<option value="-" ${UF.unit==='-'?'selected':''}>(ยังไม่ระบุหน่วย)</option></select>`:''}
     ${shown.map(u=>`<div class="card" data-email="${esc(u.email)}">
       <div class="acct">${avatar(u,44)}<div class="grow" style="min-width:0"><b>${esc(u.name||'(ยังไม่ระบุชื่อ)')}</b> <span class="badge ${stB[u.status]||'b-none'}">${STATUS_T[u.status]||u.status}</span>
         <div class="small muted" style="word-break:break-all">${esc(u.email)}</div><span class="small" style="color:var(--pri);font-weight:700">${ROLE_T[u.role]||u.role}</span></div></div>
@@ -1044,19 +1065,19 @@ async function viewUsers(){
         <span class="muted">สมัคร ${thDateTime(u.created)} · เข้าใช้ล่าสุด ${thDateTime(u.lastLogin)}</span></div>
       ${u.transferTo?`<div class="note" style="margin-bottom:8px">🔁 ขอย้ายไป <b>${esc(unitName(u.transferTo))}</b> — รอผู้ดูแลหน่วยปลายทางอนุมัติ ${canManage(u)?'<button class="btn sm" data-xc>ยกเลิกคำขอ</button>':''}</div>`:''}
       ${u.email===me().email?'<div class="small muted">(บัญชีของคุณ)</div>':!canManage(u)?(u.transferTo===me().unitId&&u.unitId!==me().unitId?'<div class="small muted">(ขอย้ายเข้าหน่วยของคุณ — อนุมัติได้ที่กล่องด้านบน)</div>':'<div class="small muted">(จัดการโดยผู้ดูแลระบบสูงสุด)</div>'):`
-        ${isSuper()?`<select class="i" data-unitsel style="margin-bottom:8px"><option value="">— หน่วยบริการ —</option>${units.map(x=>`<option value="${x.id}" ${x.id===u.unitId?'selected':''}>${esc(x.name)}</option>`).join('')}</select>`:''}
+        ${isSuper()?`<select class="i" data-unitsel style="margin-bottom:8px"><option value="">— หน่วยบริการ —</option>${unitOpts(u.unitId)}</select>`:''}
         <div class="row"><select class="i" data-role style="flex:1;min-width:140px">${roleOpts(u)}</select>
         ${u.status!=='approved'?`<button class="btn pri sm" data-st="approved">✓ ${u.status==='disabled'?'เปิดใช้งาน':'อนุมัติ'}</button>`:''}
         ${u.status!=='disabled'?'<button class="btn danger sm" data-st="disabled">ระงับ</button>':''}
         <button class="btn danger sm" data-del>🗑 ลบ</button></div>
-        ${!isSuper()&&!u.transferTo&&u.status==='approved'?`<div class="row" style="margin-top:8px"><select class="i" data-xto style="flex:1;min-width:140px"><option value="">🔁 สั่งย้ายไปหน่วยบริการ…</option>${units.filter(x=>x.id!==u.unitId).map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select><button class="btn sm" data-xr>ส่งคำขอย้าย</button></div>`:''}`}
+        ${!isSuper()&&!u.transferTo&&u.status==='approved'?`<div class="row" style="margin-top:8px"><select class="i" data-xto style="flex:1;min-width:140px"><option value="">🔁 สั่งย้ายไปหน่วยบริการ…</option>${unitOpts('',u.unitId)}</select><button class="btn sm" data-xr>ส่งคำขอย้าย</button></div>`:''}`}
     </div>`).join('')||'<div class="empty">ไม่มีผู้ใช้</div>'}`;
   const call=async(action,data,el,msg)=>{el&&(el.disabled=true);try{await api(action,data);toast(msg||'อัปเดตแล้ว ✓');viewUsers()}catch(e){toast(e.message,4500);el&&(el.disabled=false)}};
   v.onclick=e=>{
     const ub=e.target.closest('[data-u]');
     if(ub){const a=ub.dataset.u;const row=ub.closest('[data-unit]');
-      if(a==='add'){const n=$('#newUnit').value.trim();if(!n){toast('ใส่ชื่อหน่วยบริการ');return}call('unitSave',{unit:{name:n}},ub,'เพิ่มหน่วยบริการแล้ว ✓')}
-      else if(a==='ren'){const old=unitName(row.dataset.unit);const n=prompt('ชื่อหน่วยบริการใหม่',old);if(n&&n.trim()&&n.trim()!==old)call('unitSave',{unit:{id:row.dataset.unit,name:n.trim()}},ub)}
+      if(a==='add'){const n=$('#newUnit').value.trim(),cd=$('#newCode').value.trim();if(!n){toast('ใส่ชื่อหน่วยบริการ');return}if(cd&&!/^\d{5}$/.test(cd)){toast('รหัสหน่วยบริการต้องเป็นตัวเลข 5 หลัก');return}call('unitSave',{unit:{name:n,code:cd}},ub,'เพิ่มหน่วยบริการแล้ว ✓')}
+      else if(a==='ren'){const uo=unitObj(row.dataset.unit)||{};const cd=prompt('รหัสหน่วยบริการ (5 หลัก)',uo.code||'');if(cd===null)return;const n=prompt('ชื่อหน่วยบริการ',uo.name||'');if(n&&n.trim())call('unitSave',{unit:{id:row.dataset.unit,name:n.trim(),code:cd.trim()}},ub)}
       else if(a==='del'){if(confirm(`ลบหน่วยบริการ "${unitName(row.dataset.unit)}"?`))call('unitDelete',{id:row.dataset.unit},ub,'ลบหน่วยบริการแล้ว')}
       return}
     const c=e.target.closest('[data-email]');if(!c)return;const email=c.dataset.email;
@@ -1093,7 +1114,7 @@ function viewSettings(){
     ${!isSuper()&&u.unitId?`<div class="card"><h3>🔁 ย้ายหน่วยบริการ</h3>
       ${u.transferTo?`<div class="note">ส่งคำขอย้ายไป <b>${esc(unitName(u.transferTo))}</b> แล้ว — รอผู้ดูแลหน่วยบริการปลายทางอนุมัติ</div><button class="btn block" data-act="xcancel">ยกเลิกคำขอย้าย</button>`:
       `<p class="small muted" style="margin-top:0">ย้ายที่ปฏิบัติงาน: เลือกหน่วยบริการใหม่ แล้วรอผู้ดูแลหน่วยบริการนั้นอนุมัติ ระหว่างรอยังใช้งานหน่วยเดิมได้ตามปกติ</p>
-       <div class="row"><select class="i" id="xto" style="flex:1;min-width:160px"><option value="">— เลือกหน่วยบริการใหม่ —</option>${(S.units||[]).filter(x=>x.id!==u.unitId).map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select><button class="btn pri" data-act="xreq">ส่งคำขอย้าย</button></div>`}
+       ${unitPicker('xto','',u.unitId)}<button class="btn pri block" style="margin-top:8px" data-act="xreq">ส่งคำขอย้าย</button>`}
     </div>`:''}
     <div class="card"><h3>ค่าในเครื่องนี้</h3>
       <label class="f" style="margin:0"><span>รายชื่อหมู่บ้านในพื้นที่ (บรรทัดละ 1 หมู่บ้าน)</span><textarea class="i" data-k="villages" placeholder="บ้าน...&#10;บ้าน...">${esc(st.villages)}</textarea></label>
@@ -1125,7 +1146,7 @@ function viewSettings(){
     toast('บันทึกการตั้งค่าแล้ว')};
   v.onclick=async e=>{const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
     if(a==='logout')logout();
-    else if(a==='xreq'){const to=$('#xto').value;if(!to){toast('เลือกหน่วยบริการใหม่');return}if(!confirm(`ขอย้ายไป ${unitName(to)}?\nต้องรอผู้ดูแลหน่วยบริการปลายทางอนุมัติ`))return;
+    else if(a==='xreq'){const to=pickUnitId('xto');if(to===u.unitId){toast('อยู่ในหน่วยบริการนี้อยู่แล้ว');return}if(!to){toast('เลือกหน่วยบริการใหม่');return}if(!confirm(`ขอย้ายไป ${unitName(to)}?\nต้องรอผู้ดูแลหน่วยบริการปลายทางอนุมัติ`))return;
       b.disabled=true;try{const j=await api('transferRequest',{unitId:to});S.auth.user=j.user;await idb.put('kv',S.auth,'auth');toast('ส่งคำขอย้ายแล้ว ✓');viewSettings()}catch(err){toast(err.message,4500);b.disabled=false}}
     else if(a==='xcancel'){b.disabled=true;try{const j=await api('transferCancel',{});S.auth.user=j.user;await idb.put('kv',S.auth,'auth');toast('ยกเลิกคำขอแล้ว');viewSettings()}catch(err){toast(err.message);b.disabled=false}}
     else if(a==='profile'){S.route.editProfile=true;document.body.classList.add('authing');viewRegister()}
