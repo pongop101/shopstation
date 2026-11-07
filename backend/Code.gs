@@ -672,7 +672,10 @@ function selfGet_(token) {
 function selfUnit_(unitId) {
   const u = readUnits_().filter(x => x.id === unitId)[0];
   if (!u) throw new Error('ลิงก์ลงทะเบียนไม่ถูกต้อง');
-  return { ok: true, unit: { id: u.id, name: u.name, code: u.code } };
+  // รายชื่อร้านในหน่วย (เฉพาะชื่อ/หมู่บ้าน) ให้ร้านที่มีในระบบแล้วค้นหาชื่อตัวเองได้ — ไม่เปิดเผยข้อมูลส่วนตัว
+  const stores = readAll_(SHEET_STORES).filter(s => String(s.unitId) === String(u.id) && !s.closed)
+    .map(s => ({ id: s.id, name: s.name || '', village: s.village || '', moo: s.moo || '' }));
+  return { ok: true, unit: { id: u.id, name: u.name, code: u.code }, stores: stores };
 }
 function cleanSelf_(d) {
   const info = {}; SELF_FIELDS.forEach(k => { if (d.info && d.info[k] !== undefined) info[k] = String(d.info[k]).slice(0, 300); });
@@ -685,10 +688,15 @@ function cleanSelf_(d) {
 }
 function selfSubmit_(req) {
   const c = CacheService.getScriptCache();
-  const key = 'self_' + (req.token || req.unitId || 'x');
+  const key = 'self_' + (req.token || req.storeId || (req.unitId + '_' + String((req.info || {}).name || '').trim()));
   if (c.get(key)) throw new Error('เพิ่งส่งข้อมูลไปแล้ว กรุณารอสักครู่แล้วลองใหม่');
   let st = null, unitId = '', type = 'update';
   if (req.token) { st = storeByToken_(req.token); if (!st) throw new Error('ลิงก์ไม่ถูกต้อง'); unitId = st.unitId; }
+  else if (req.unitId && req.storeId) {   // ร้านที่มีในระบบแล้ว ส่งผ่าน QR ของหน่วยบริการ
+    st = findRec_(SHEET_STORES, req.storeId);
+    if (!st || String(st.unitId) !== String(req.unitId)) throw new Error('ไม่พบร้านค้านี้ในหน่วยบริการ');
+    unitId = st.unitId;
+  }
   else { const u = readUnits_().filter(x => x.id === req.unitId)[0]; if (!u) throw new Error('ลิงก์ลงทะเบียนไม่ถูกต้อง'); unitId = u.id; type = 'new'; }
   const d = cleanSelf_(req);
   if (type === 'new' && !d.info.name) throw new Error('กรุณากรอกชื่อร้านค้า');
