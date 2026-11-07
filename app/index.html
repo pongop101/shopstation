@@ -49,6 +49,8 @@ nav.bottom{position:fixed;bottom:0;left:0;right:0;height:calc(var(--nav) + var(-
 nav.bottom button{flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;color:var(--mut);gap:2px;cursor:pointer}
 nav.bottom button b{font-size:21px;line-height:1;font-weight:400}
 nav.bottom button{position:relative}
+.mitem{cursor:pointer;padding:11px 14px;margin-bottom:8px}.mitem.unread{border-left:4px solid var(--pri);background:#f0fdfa}
+.udot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--pri);margin-right:6px;vertical-align:middle}
 .nb{position:absolute;top:4px;left:50%;margin-left:6px;background:#dc2626;color:#fff;border-radius:99px;font-size:11px;font-weight:700;line-height:18px;min-width:18px;padding:0 5px;text-align:center}
 nav.bottom button.on{color:var(--pri);font-weight:700}
 .tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -182,6 +184,7 @@ body.authing main{padding:0;max-width:none}
   <button data-v="map"><b>🗺️</b>แผนที่</button>
   <button data-v="list"><b>🏪</b>ร้านค้า</button>
   <button data-v="dash"><b>📊</b>รายงาน</button>
+  <button data-v="mail"><b>📬</b>ข้อความ</button>
   <button data-v="settings"><b>⚙️</b>ตั้งค่า</button>
 </nav>
 
@@ -271,6 +274,9 @@ const authed=()=>!!(S.auth&&S.auth.token&&me().status==='approved');
 const canEdit=()=>authed()&&['superadmin','unitadmin','staff','osm'].includes(me().role);
 const isAdmin=()=>authed()&&['superadmin','unitadmin'].includes(me().role);
 const isSuper=()=>authed()&&me().role==='superadmin';
+const OSM_PERMS={add:'เพิ่มร้านค้าใหม่',info:'แก้ไขข้อมูลร้าน',location:'ปรับพิกัด',photo:'ถ่ายรูปหน้าร้าน',inspect:'ตรวจประเมินร้านค้า',close:'แจ้งร้านปิด/เปิด'};
+const can=p=>canEdit()&&(me().role!=='osm'||String(me().perms||'').split(',').includes(p));
+const canEditStore=()=>can('info')||can('location')||can('photo');
 const unitObj=id=>(S.units||[]).find(u=>u.id===id)||null;
 const shortUnit=n=>String(n||'').replace('โรงพยาบาลส่งเสริมสุขภาพตำบล','รพ.สต.').replace('ศูนย์สุขภาพชุมชน','ศสช.');
 const unitName=id=>shortUnit((unitObj(id)||{}).name||'');
@@ -295,7 +301,8 @@ const myUnitName=()=>unitName(me().unitId)||me().unit||'';
 const DEF_SET={inspector:'',unit:'',serverUrl:CONFIG.SERVER_URL,gmapKey:'',villages:'',center:[15.7926,104.1453],zoom:12};
 async function saveSettings(){await idb.put('kv',S.settings,'settings')}
 function storeById(id){return S.stores.find(s=>s.id===id)}
-function inspsOf(id){return S.inspections.filter(i=>i.storeId===id).sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.created||0)-(a.created||0))}
+function selfOf(id){return S.inspections.filter(i=>i.storeId===id&&i.type==='self').sort((a,b)=>(b.date||'').localeCompare(a.date||''))}
+function inspsOf(id){return S.inspections.filter(i=>i.storeId===id&&i.type!=='self').sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.created||0)-(a.created||0))}
 function latestOf(id){return inspsOf(id)[0]||null}
 function levelOf(id){const l=latestOf(id);return l&&l.result?l.result.level:'none'}
 function villages(){const set=new Set(String(S.settings.villages||'').split('\n').map(s=>s.trim()).filter(Boolean));S.stores.forEach(s=>s.village&&set.add(s.village));return [...set].sort((a,b)=>a.localeCompare(b,'th'))}
@@ -388,6 +395,8 @@ async function mergeServer(data){
   const merge=(local,server)=>{const sm=new Map((server||[]).map(r=>[r.id,r]));const lm=new Map(local.map(r=>[r.id,r]));const out=[];
     sm.forEach((r,id)=>out.push(pend.has(id)&&lm.has(id)?lm.get(id):r));
     lm.forEach((r,id)=>{if(!sm.has(id)&&pend.has(id))out.push(r)});return out};
+  if(data.msgUnread!==undefined){setMailBadge(data.msgUnread);if(S.msgUnread&&S.msgs)S.msgsAt=0}
+  if(data.selfPending!==undefined){S.selfPending=data.selfPending;setTimeout(setSelfBadge,0)}
   S.stores=merge(S.stores,data.stores);S.inspections=merge(S.inspections,data.inspections);
   await idb.replaceAll('stores',S.stores);await idb.replaceAll('inspections',S.inspections);
 }
@@ -516,11 +525,13 @@ const NAVMAP={store:'list',edit:'list',inspect:'list',report:'list'};
 window.addEventListener('hashchange',route);
 function setHeader(title,sub,back){$('#title').textContent=title;$('#subtitle').textContent=sub||'';$('#backBtn').hidden=!back}
 function route(){
+  const hh=decodeURIComponent(location.hash.slice(1));
+  if(/^self(new)?\//.test(hh)){const [k,key]=hh.split('/');viewSelf(k,key);return}
   if(!authed()){document.body.classList.add('authing');const sb0=$('.sumbar');if(sb0)sb0.remove();viewAuth();return}
-  document.body.classList.remove('authing');
+  document.body.classList.remove('authing');$$('.modal[data-nav]').forEach(m=>m.remove());
   const h=decodeURIComponent(location.hash.slice(1))||'map';const [v,a,b]=h.split('/');S.route={v,a,b};
   $$('nav.bottom button').forEach(x=>x.classList.toggle('on',x.dataset.v===(NAVMAP[v]||v)));
-  const isMap=v==='map';$('#mapView').hidden=!isMap;$('#view').hidden=isMap;$('#fab').hidden=!((v==='map'||v==='list')&&canEdit());$('#fab').classList.toggle('onmap',isMap);
+  const isMap=v==='map';$('#mapView').hidden=!isMap;$('#view').hidden=isMap;$('#fab').hidden=!((v==='map'||v==='list')&&can('add'));$('#fab').classList.toggle('onmap',isMap);
   const sb=$('.sumbar');if(sb)sb.remove();
   const view=$('#view');view.onclick=view.oninput=view.onchange=null;
   if(!isMap)window.scrollTo(0,0);
@@ -528,17 +539,19 @@ function route(){
     case 'map':setHeader('🏪 ShopStation',isSuper()&&!me().unitId?'ทุกหน่วยบริการ':myUnitName());showMap();break;
     case 'list':viewList();break;
     case 'store':viewStore(a);break;
-    case 'edit':if(canEdit())viewEdit(a);else location.hash='#store/'+a;break;
-    case 'inspect':if(canEdit())viewInspect(a,b);else location.hash='#store/'+a;break;
+    case 'inbox':viewInbox();break;
+    case 'edit':if(a==='new'?can('add'):canEditStore())viewEdit(a);else location.hash='#store/'+a;break;
+    case 'inspect':if(can('inspect'))viewInspect(a,b);else location.hash='#store/'+a;break;
     case 'report':viewReport(a);break;
     case 'dash':viewDash();break;
     case 'settings':viewSettings();break;
-    case 'users':if(isAdmin())viewUsers();else location.hash='#settings';break;
+    case 'mail':viewMail(a);break;
+    case 'users':if(isAdmin()||me().role==='staff')viewUsers();else location.hash='#settings';break;
     default:location.hash='#map';
   }
 }
 $('#backBtn').onclick=()=>{if(history.length>1)history.back();else location.hash='#list'};
-$$('nav.bottom button').forEach(b=>b.onclick=()=>location.hash='#'+b.dataset.v);
+$$('nav.bottom button').forEach(b=>b.onclick=()=>{if(b.dataset.v==='mail')S.mailTab='in';location.hash='#'+b.dataset.v});
 $('#fab').onclick=()=>location.hash='#edit/new';
 $('#syncPill').onclick=()=>sync(true);
 $('#btnFit').onclick=()=>refreshMarkers(true);
@@ -557,7 +570,10 @@ function viewList(){
       <select class="i" id="fs"><option value="open" ${LF.st==='open'?'selected':''}>เปิดให้บริการ</option><option value="closed" ${LF.st==='closed'?'selected':''}>ปิดให้บริการแล้ว</option><option value="" ${!LF.st?'selected':''}>ทุกสถานะร้าน</option></select>
       <select class="i" id="ft"><option value="">ทุกประเภท</option>${STORE_TYPES.map(v=>`<option ${v===LF.type?'selected':''}>${esc(v)}</option>`).join('')}</select>
       ${isSuper()?`<select class="i" id="fu"><option value="">ทุกหน่วยบริการ</option>${unitOpts(LF.unit)}<option value="-" ${LF.unit==='-'?'selected':''}>(ยังไม่ระบุหน่วย)</option></select>`:''}
-    </div><div id="items"></div>`;
+    </div>
+    ${S.selfPending&&['superadmin','unitadmin','staff'].includes(me().role)?`<a class="note" href="#inbox" style="display:block;text-decoration:none;color:inherit">📥 <b>ข้อมูลจากร้านค้ารอตรวจรับ ${S.selfPending} รายการ</b> — แตะเพื่อตรวจรับ</a>`:''}
+    <div class="row" style="margin-bottom:10px"><a class="btn sm" href="#inbox">📥 ข้อมูลจากร้านค้า</a>${canEdit()&&me().unitId?'<button class="btn sm" data-unitlink>🔗 QR ลงทะเบียนร้านใหม่</button>':''}</div>
+    <div id="items"></div>`;
   const draw=()=>{const q=LF.q.toLowerCase();
     const arr=S.stores.filter(s=>(!LF.st||(LF.st==='closed'?!!s.closed:!s.closed))&&(!LF.unit||(LF.unit==='-'?!s.unitId:s.unitId===LF.unit))&&(!LF.vil||s.village===LF.vil)&&(!LF.type||s.type===LF.type)&&(!LF.lv||levelOf(s.id)===LF.lv)&&
       (!q||[s.name,s.owner,s.caretaker,s.village,s.phone].join(' ').toLowerCase().includes(q)))
@@ -573,7 +589,7 @@ function viewList(){
   const v=$('#view');
   v.oninput=e=>{if(e.target.id==='q'){LF.q=e.target.value;draw()}};
   v.onchange=e=>{const m={fv:'vil',fl:'lv',ft:'type',fu:'unit',fs:'st'}[e.target.id];if(m){LF[m]=e.target.value;draw()}};
-  v.onclick=e=>{const g=e.target.closest('[data-go]');if(g)location.hash=g.dataset.go};
+  v.onclick=e=>{if(e.target.closest('[data-unitlink]')){unitSelfLink();return}const g=e.target.closest('[data-go]');if(g)location.hash=g.dataset.go};
 }
 
 /* ====================== view: store detail ====================== */
@@ -600,10 +616,12 @@ function viewStore(id){
       </dl>
     </div>
     <div class="btns" style="margin-bottom:12px">
-      ${canEdit()&&!s.closed?`<a class="btn pri" href="#inspect/${s.id}">📝 ตรวจประเมิน</a>`:''}
+      ${can('inspect')&&!s.closed?`<a class="btn pri" href="#inspect/${s.id}">📝 ตรวจประเมิน</a>`:''}
       ${hasLL(s)?`<a class="btn" target="_blank" rel="noopener" href="${gmapsNav(s.lat,s.lng)}">🧭 นำทาง Google Maps</a>`:''}
-      ${canEdit()?`<a class="btn" href="#edit/${s.id}">✏️ แก้ไขข้อมูลร้าน</a>`:''}
-      ${canEdit()?(s.closed?`<button class="btn" data-act="reopen">↩ เปิดให้บริการอีกครั้ง</button>`:`<button class="btn danger" data-act="close">🚫 ร้านค้าปิดให้บริการแล้ว</button>`):''}
+      ${canEditStore()?`<a class="btn" href="#edit/${s.id}">✏️ ${me().role==='osm'&&!can('info')?'ปรับพิกัด/รูปหน้าร้าน':'แก้ไขข้อมูลร้าน'}</a>`:''}
+      ${canEdit()&&!s.closed?`<button class="btn" data-act="selflink">🔗 ลิงก์ให้ร้านกรอกเอง</button>`:''}
+      <button class="btn" data-act="msg">📨 ส่งข้อความเรื่องร้านนี้</button>
+      ${can('close')?(s.closed?`<button class="btn" data-act="reopen">↩ เปิดให้บริการอีกครั้ง</button>`:`<button class="btn danger" data-act="close">🚫 ร้านค้าปิดให้บริการแล้ว</button>`):''}
     </div>
     ${l&&l.result?`<div class="card"><h3>ผลการตรวจล่าสุด (${thDate(l.date)})</h3>
       <div class="res b-${l.result.level}"><b>${l.result.label}${l.result.pct!=null?' · '+l.result.pct+'%':''}</b>ผ่าน ${l.result.pass} ข้อ · ไม่ผ่าน ${l.result.fail} ข้อ</div>
@@ -611,6 +629,7 @@ function viewStore(id){
       ${l.recommend?`<p class="small" style="margin:8px 0 0"><b>ข้อเสนอแนะ:</b> ${esc(l.recommend)}</p>`:''}
       ${l.followup?`<p class="small" style="margin:6px 0 0">📅 นัดตรวจติดตาม: <b>${thDate(l.followup)}</b></p>`:''}
     </div>`:''}
+    ${selfOf(id).length?`<div class="card"><h3>🗣️ ผลประเมินตนเองของร้าน (${selfOf(id).length})</h3><table class="t">${selfOf(id).map(x=>{const r=x.result||evaluate(x);return `<tr data-go="#report/${x.id}" style="cursor:pointer"><td>${thDate(x.date)}</td><td class="small">${esc(x.inspector||'')}</td><td class="n">${r.pct!=null?r.pct+'%':'-'}</td><td>${badge(r.level)}</td></tr>`}).join('')}</table><div class="small muted" style="margin-top:4px">ผลประเมินตนเองไม่นับเป็นผลตรวจของเจ้าหน้าที่</div></div>`:''}
     <div class="card"><h3>ประวัติการตรวจ (${ins.length} ครั้ง)</h3>
       ${ins.length?`<table class="t"><tr><th>วันที่</th><th>ผู้ตรวจ</th><th class="n">คะแนน</th><th>ผล</th></tr>
         ${ins.map(x=>`<tr data-go="#report/${x.id}" style="cursor:pointer"><td>${thDate(x.date)}</td><td>${esc(x.inspector||'-')}</td><td class="n">${x.result&&x.result.pct!=null?x.result.pct+'%':'-'}</td><td>${badge(x.result?x.result.level:'none')}</td></tr>`).join('')}</table>`
@@ -619,6 +638,8 @@ function viewStore(id){
     <div class="small muted">แก้ไขล่าสุด ${thDateTime(s.updated)}${s.by?' โดย '+esc(s.by):''}</div>`;
   $('#view').onclick=async e=>{const g=e.target.closest('[data-go]');if(g){location.hash=g.dataset.go;return}
     const b=e.target.closest('[data-act]');if(!b)return;
+    if(b.dataset.act==='selflink'){storeSelfLink(s);return}
+    if(b.dataset.act==='msg'){S.mailDraft={subject:'เรื่องร้าน '+s.name,link:'#store/'+s.id,to:me().role==='osm'?'unit:'+me().unitId+':staff':''};location.hash='#mail/new';return}
     if(b.dataset.act==='close'){
       const reason=prompt(`ยืนยันว่า "${s.name}" ปิดให้บริการแล้ว?\n\nระบุสาเหตุ (ถ้ามี) เช่น เลิกกิจการ, ย้ายออกนอกพื้นที่`,'');
       if(reason===null)return;
@@ -638,8 +659,10 @@ function viewEdit(id){
   setHeader(isNew?'เพิ่มร้านค้าใหม่':'แก้ไขข้อมูลร้าน',isNew?'':s.name,true);
   const vs=villages();
   const opt=(arr,v)=>{const a=arr.includes(v)||!v?arr:[...arr,v];return a.map(x=>`<option ${x===v?'selected':''}>${esc(x)}</option>`).join('')};
+  const pInfo=isNew||can('info'),pLoc=isNew||can('location'),pPhoto=isNew||can('photo');
   $('#view').innerHTML=`
-    <div class="card"><h3>1. ข้อมูลพื้นฐานของร้านค้า (Store Profile)</h3>
+    ${me().role==='osm'&&!isNew?`<div class="info small">สิทธิ์ อสม. ของคุณ: ${['info','location','photo'].filter(can).map(k=>OSM_PERMS[k]).join(', ')||'-'}</div>`:''}
+    <div class="card" ${pInfo?'':'hidden'}><h3>1. ข้อมูลพื้นฐานของร้านค้า (Store Profile)</h3>
       ${isSuper()?`<label class="f"><span>หน่วยบริการ *</span><select class="i" name="unitId">${unitOpts(s.unitId||me().unitId)}</select></label>`:
         `<div class="small muted" style="margin:-4px 0 10px">หน่วยบริการ: <b>${esc(unitName(s.unitId)||myUnitName()||'-')}</b></div>`}
       <div class="grid2">
@@ -658,10 +681,10 @@ function viewEdit(id){
       <label class="f"><span>ที่อยู่</span><input class="i" name="address" value="${esc(s.address||'')}" placeholder="บ้านเลขที่ ถนน ตำบล"></label>
       <label class="f"><span>หมายเหตุ</span><textarea class="i" name="note">${esc(s.note||'')}</textarea></label>
     </div>
-    <div class="card"><h3>📷 ภาพหน้าร้าน</h3>
+    <div class="card" ${pPhoto?'':'hidden'}><h3>📷 ภาพหน้าร้าน</h3>
       <div class="photos" id="ph"></div>
     </div>
-    <div class="card"><h3>📍 ตำแหน่งร้าน (Google Maps)</h3>
+    <div class="card" ${pLoc?'':'hidden'}><h3>📍 ตำแหน่งร้าน (Google Maps)</h3>
       <div class="grid2">
         <label class="f"><span>ละติจูด</span><input class="i" name="lat" inputmode="decimal" value="${esc(s.lat??'')}"></label>
         <label class="f"><span>ลองจิจูด</span><input class="i" name="lng" inputmode="decimal" value="${esc(s.lng??'')}"></label>
@@ -844,7 +867,8 @@ function viewReport(id){
       <a class="btn" href="#store/${i.storeId}">🏪 หน้าร้าน</a>
     </div>
     <div class="card rep">
-      <h1>แบบบันทึกผลการตรวจร้านค้าและผลิตภัณฑ์สุขภาพ</h1>
+      <h1>${i.type==='self'?'แบบประเมินตนเองของร้านค้า':'แบบบันทึกผลการตรวจร้านค้าและผลิตภัณฑ์สุขภาพ'}</h1>
+      ${i.type==='self'?`<div class="note small" style="text-align:center">ร้านค้าประเมินตนเองผ่านลิงก์ — ไม่ใช่ผลตรวจของเจ้าหน้าที่${i.comment?'<br>💬 '+esc(i.comment):''}</div>`:''}
       <div class="sub">${esc(unitName(st.unitId)||i.unit||'')}</div>
       <dl class="kv" style="margin-bottom:12px">
         <dt>ชื่อร้าน</dt><dd><b>${esc(st.name)}</b> (${esc(st.type||'-')})</dd>
@@ -872,7 +896,7 @@ function viewReport(id){
       <div class="sign"><div>ลงชื่อ ...................................<br>(${esc(st.owner||'.................................')})<br>ผู้ประกอบการ</div>
         <div>ลงชื่อ ...................................<br>(${esc(i.inspector||'.................................')})<br>เจ้าหน้าที่ผู้ตรวจ</div></div>
     </div>
-    ${isSuper()||(isAdmin()&&i.unitId===me().unitId)||(canEdit()&&(!i.createdBy||i.createdBy===me().email))?'<button class="btn danger block noprint" data-act="del">🗑 ลบผลการตรวจนี้</button>':''}`;
+    ${isSuper()||(isAdmin()&&i.unitId===me().unitId)||(can('inspect')&&(!i.createdBy||i.createdBy===me().email))?'<button class="btn danger block noprint" data-act="del">🗑 ลบผลการตรวจนี้</button>':''}`;
   $('#view').onclick=async e=>{const b=e.target.closest('[data-act]');if(!b)return;
     if(b.dataset.act==='print')window.print();
     else if(b.dataset.act==='del'){if(!confirm('ลบผลการตรวจครั้งนี้?'))return;await deleteInsp(i.id);refreshMarkers(false);toast('ลบแล้ว');location.replace('#store/'+i.storeId)}};
@@ -888,7 +912,7 @@ function viewDash(){
   setHeader('📊 รายงาน',uName);
   const allStores=S.stores.filter(s=>!RF.unit||s.unitId===RF.unit);const stores=allStores.filter(s=>!s.closed);const nClosed=allStores.length-stores.length;
   const sIds=new Set(allStores.map(s=>s.id));
-  const insps=S.inspections.filter(i=>sIds.has(i.storeId)&&(i.date||'')>=RF.from&&(i.date||'')<=RF.to)
+  const insps=S.inspections.filter(i=>i.type!=='self'&&sIds.has(i.storeId)&&(i.date||'')>=RF.from&&(i.date||'')<=RF.to)
     .sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.created||0)-(a.created||0));
   const lastIn={};insps.forEach(i=>{if(!lastIn[i.storeId])lastIn[i.storeId]=i});
   const lvIn=id=>lastIn[id]&&lastIn[id].result?lastIn[id].result.level:'none';
@@ -1055,6 +1079,7 @@ async function viewRegister(){
   const lockUnit=u.status==='approved'&&u.role!=='superadmin'&&u.unitId;
   authShell(`<h3 style="margin:0 0 4px">📝 ข้อมูลผู้สมัครใช้งาน</h3><div class="small muted" style="margin-bottom:12px">${esc(u.email)}</div>
     <label class="f"><span>ชื่อ-นามสกุล *</span><input class="i" id="rname" value="${esc(u.name||'')}"></label>
+    ${u.status!=='approved'?`<label class="f"><span>สมัครใช้งานในฐานะ *</span><select class="i" id="rrole"><option value="staff" ${u.role!=='osm'?'selected':''}>เจ้าหน้าที่สาธารณสุข</option><option value="osm" ${u.role==='osm'?'selected':''}>อสม. (อาสาสมัครสาธารณสุขประจำหมู่บ้าน)</option></select></label>`:''}
     <label class="f"><span>ตำแหน่ง *</span><input class="i" id="rpos" value="${esc(u.position||'')}" placeholder="เช่น นักวิชาการสาธารณสุข, อสม."></label>
     ${units.length?`<label class="f"><span>หน่วยบริการ * <span class="muted" style="font-weight:400">(รหัสหน่วยบริการ 5 หลัก)</span></span>${unitPicker('runit',u.unitId,'',lockUnit)}
       ${lockUnit?'<span class="small muted">เปลี่ยนหน่วยบริการได้โดยผู้ดูแลระบบสูงสุด</span>':'<span class="small muted">ไม่พบหน่วยของคุณ? แจ้งผู้ดูแลระบบให้เพิ่มหน่วยบริการ</span>'}</label>`:
@@ -1063,7 +1088,7 @@ async function viewRegister(){
     <button class="btn pri block" id="rsave">${u.status==='approved'?'บันทึก':'ส่งคำขอสมัครใช้งาน'}</button>
     <button class="btn block" id="rcancel" style="margin-top:8px">${u.status==='approved'?'ยกเลิก':'ออกจากระบบ'}</button>`);
   bindUnitPicker('runit');
-  $('#rsave').onclick=async e=>{const p={name:$('#rname').value.trim(),position:$('#rpos').value.trim(),phone:$('#rphone').value.trim()};
+  $('#rsave').onclick=async e=>{const p={name:$('#rname').value.trim(),position:$('#rpos').value.trim(),phone:$('#rphone').value.trim()};if($('#rrole'))p.asRole=$('#rrole').value;
     if($('#runit')&&!lockUnit)p.unitId=pickUnitId('runit');if($('#runit2'))p.unit=$('#runit2').value.trim();
     if($('#runit')&&!lockUnit&&!p.unitId){toast('กรุณาเลือกหน่วยบริการจากรายการ (พิมพ์รหัส 5 หลักหรือชื่อ)',4000);$('#runit').focus();return}
     if(!p.name||!p.position||!p.phone){toast('กรุณากรอกข้อมูลที่มี * ให้ครบ');return}
@@ -1085,7 +1110,11 @@ async function viewUsers(){
   const shown=users.filter(u=>!UF.unit||(UF.unit==='-'?!u.unitId:u.unitId===UF.unit));
   const stB={pending:'b-yellow',approved:'b-green',disabled:'b-red'};
   const roleOpts=u=>(isSuper()?['unitadmin','staff','osm','viewer']:['staff','osm','viewer']).map(k=>`<option value="${k}" ${u.role===k?'selected':''}>${ROLE_T[k]}</option>`).join('');
-  const canManage=u=>u.email!==me().email&&u.role!=='superadmin'&&(isSuper()||(u.unitId===me().unitId&&u.role!=='unitadmin'));
+  const isStaff=me().role==='staff';
+  const canManage=u=>u.email!==me().email&&u.role!=='superadmin'&&(isSuper()||(u.unitId===me().unitId&&u.role!=='unitadmin'&&(!isStaff||u.role==='osm')));
+  const permBox=u=>{const P=String(u.perms||'').split(',');return `<div class="card" style="background:#f0fdfa;margin:8px 0;padding:10px"><b class="small">🔑 สิทธิ์ อสม.</b>
+    <div class="row" style="margin:6px 0"><button class="btn sm" data-preset="add,location,photo">📍 รายงานพิกัด/ภาพ</button><button class="btn sm" data-preset="add,info,location,photo,inspect,close">✅ ทำได้ทั้งหมด</button></div>
+    <div class="grid2">${Object.entries(OSM_PERMS).map(([k,t])=>`<label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-perm="${k}" ${P.includes(k)?'checked':''}> ${t}</label>`).join('')}</div></div>`};
   v.innerHTML=`${isSuper()?`<div class="card"><h3>🏥 หน่วยบริการ (${units.length})</h3>
       <div class="tw" style="max-height:320px;overflow-y:auto"><table class="t">${units.map(x=>`<tr data-unit="${x.id}"><td><b>${esc(x.code||'-')}</b> ${esc(x.name)}<div class="small muted">ผู้ใช้ ${users.filter(u=>u.unitId===x.id).length} คน · ร้าน ${S.stores.filter(s=>s.unitId===x.id).length} ร้าน</div></td>
         <td class="n"><button class="btn sm" data-u="ren">แก้ไข</button> <button class="btn sm danger" data-u="del">ลบ</button></td></tr>`).join('')}</table></div>
@@ -1104,11 +1133,12 @@ async function viewUsers(){
       ${u.transferTo?`<div class="note" style="margin-bottom:8px">🔁 ขอย้ายไป <b>${esc(unitName(u.transferTo))}</b> — รอผู้ดูแลหน่วยปลายทางอนุมัติ ${canManage(u)?'<button class="btn sm" data-xc>ยกเลิกคำขอ</button>':''}</div>`:''}
       ${u.email===me().email?'<div class="small muted">(บัญชีของคุณ)</div>':!canManage(u)?(u.transferTo===me().unitId&&u.unitId!==me().unitId?'<div class="small muted">(ขอย้ายเข้าหน่วยของคุณ — อนุมัติได้ที่กล่องด้านบน)</div>':'<div class="small muted">(จัดการโดยผู้ดูแลระบบสูงสุด)</div>'):`
         ${isSuper()?`<select class="i" data-unitsel style="margin-bottom:8px"><option value="">— หน่วยบริการ —</option>${unitOpts(u.unitId)}</select>`:''}
-        <div class="row"><select class="i" data-role style="flex:1;min-width:140px">${roleOpts(u)}</select>
+        ${u.role==='osm'?permBox(u):''}
+        <div class="row">${isStaff?'':`<select class="i" data-role style="flex:1;min-width:140px">${roleOpts(u)}</select>`}
         ${u.status!=='approved'?`<button class="btn pri sm" data-st="approved">✓ ${u.status==='disabled'?'เปิดใช้งาน':'อนุมัติ'}</button>`:''}
         ${u.status!=='disabled'?'<button class="btn danger sm" data-st="disabled">ระงับ</button>':''}
-        <button class="btn danger sm" data-del>🗑 ลบ</button></div>
-        ${!isSuper()&&!u.transferTo&&u.status==='approved'?`<div class="row" style="margin-top:8px"><select class="i" data-xto style="flex:1;min-width:140px"><option value="">🔁 สั่งย้ายไปหน่วยบริการ…</option>${unitOpts('',u.unitId)}</select><button class="btn sm" data-xr>ส่งคำขอย้าย</button></div>`:''}`}
+        ${isStaff?'':'<button class="btn danger sm" data-del>🗑 ลบ</button>'}</div>
+        ${!isSuper()&&!isStaff&&!u.transferTo&&u.status==='approved'?`<div class="row" style="margin-top:8px"><select class="i" data-xto style="flex:1;min-width:140px"><option value="">🔁 สั่งย้ายไปหน่วยบริการ…</option>${unitOpts('',u.unitId)}</select><button class="btn sm" data-xr>ส่งคำขอย้าย</button></div>`:''}`}
     </div>`).join('')||'<div class="empty">ไม่มีผู้ใช้</div>'}`;
   const call=async(action,data,el,msg)=>{el&&(el.disabled=true);try{await api(action,data);toast(msg||'อัปเดตแล้ว ✓');viewUsers()}catch(e){toast(e.message,4500);el&&(el.disabled=false)}};
   v.onclick=e=>{
@@ -1121,9 +1151,10 @@ async function viewUsers(){
     const c=e.target.closest('[data-email]');if(!c)return;const email=c.dataset.email;
     const b=e.target.closest('[data-st]');
     if(b){if(b.dataset.st==='disabled'&&!confirm('ระงับการใช้งานบัญชีนี้?'))return;
-      const ch={status:b.dataset.st,role:$('[data-role]',c).value};const us=$('[data-unitsel]',c);if(us)ch.unitId=us.value;
+      const ch={status:b.dataset.st};const rs=$('[data-role]',c);if(rs)ch.role=rs.value;const us=$('[data-unitsel]',c);if(us)ch.unitId=us.value;
       if(b.dataset.st==='approved'&&us&&!us.value){toast('กรุณาเลือกหน่วยบริการก่อนอนุมัติ');return}
       call('userUpdate',{email,changes:ch},b);return}
+    const pr=e.target.closest('[data-preset]');if(pr){call('userUpdate',{email,changes:{perms:pr.dataset.preset}},pr,'ตั้งสิทธิ์ อสม. แล้ว ✓');return}
     const xd=e.target.closest('[data-xd]');
     if(xd){const ok=xd.dataset.xd==='1';if(!ok&&!confirm('ไม่อนุมัติคำขอย้ายนี้?'))return;call('transferDecide',{email,approve:ok},xd,ok?'อนุมัติการย้ายแล้ว ✓':'ปฏิเสธคำขอแล้ว');return}
     const xc=e.target.closest('[data-xc]');if(xc){call('transferCancel',{email},xc,'ยกเลิกคำขอย้ายแล้ว');return}
@@ -1134,8 +1165,257 @@ async function viewUsers(){
     if(d){if(!confirm(`ลบบัญชี ${email} ออกจากระบบ?\nผู้ใช้จะต้องสมัครใหม่หากต้องการใช้งาน (ข้อมูลร้าน/ผลตรวจที่บันทึกไว้ไม่ถูกลบ)`))return;call('userDelete',{email},d,'ลบบัญชีแล้ว')}};
   v.onchange=e=>{if(e.target.id==='ufu'){UF.unit=e.target.value;viewUsers();return}
     const c=e.target.closest('[data-email]');if(!c)return;
+    if(e.target.dataset.perm!==undefined){const perms=$$('[data-perm]',c).filter(x=>x.checked).map(x=>x.dataset.perm).join(',');call('userUpdate',{email:c.dataset.email,changes:{perms}},null,'บันทึกสิทธิ์แล้ว ✓');return}
     if(e.target.dataset.role!==undefined)call('userUpdate',{email:c.dataset.email,changes:{role:e.target.value}},e.target);
     else if(e.target.dataset.unitsel!==undefined&&e.target.value)call('userUpdate',{email:c.dataset.email,changes:{unitId:e.target.value}},e.target,'ย้ายหน่วยบริการแล้ว ✓')};
+}
+
+/* ====================== ร้านค้ากรอกข้อมูลเอง / ประเมินตนเอง (หน้าเปิดสาธารณะ) ====================== */
+const SELF_LABEL={name:'ชื่อร้าน',type:'ประเภทร้าน',kind:'ลักษณะสถานประกอบการ',owner:'เจ้าของร้าน',caretaker:'ผู้ดูแลร้าน',phone:'โทรศัพท์',address:'ที่อยู่',village:'หมู่บ้าน',moo:'หมู่ที่',license:'ทะเบียน/ใบอนุญาต',lat:'ละติจูด',lng:'ลองจิจูด',photo:'ภาพหน้าร้าน'};
+async function viewSelf(kind,key){
+  document.body.classList.add('authing');const v=$('#view');v.hidden=false;v.onclick=v.oninput=v.onchange=null;
+  const shell=inner=>{v.innerHTML=`<div class="auth" style="align-items:flex-start"><div class="box" style="max-width:640px">
+    <div class="acct" style="margin-bottom:8px"><img src="icon-192.png" style="width:44px;height:44px;border-radius:12px"><div><b style="font-size:18px">ShopStation</b><div class="small muted">สำหรับผู้ประกอบการร้านค้า</div></div></div>${inner}</div></div>`;window.scrollTo(0,0)};
+  shell('<div class="empty">⏳ กำลังโหลด…</div>');
+  let st={},unitN='',pending=0;
+  try{ if(kind==='self'){const j=await api('selfGet',{token:key});st=j.store;unitN=j.unitName;pending=j.pending}
+       else{const j=await api('selfUnit',{unitId:key});unitN=j.unit.name;st={type:STORE_TYPES[0],kind:STORE_KINDS[0]}} }
+  catch(e){shell(`<div class="note" style="background:var(--red-l)">⚠ ${esc(e.message)}</div>`);return}
+  const isNew=kind==='selfnew';const F={answers:{},notes:{},sources:[]};let photo='';let doAssess=!isNew;
+  const opt=(arr,val)=>{const a=arr.includes(val)||!val?arr:[...arr,val];return a.map(x=>`<option ${x===val?'selected':''}>${esc(x)}</option>`).join('')};
+  const tri=(id)=>['y','n','na'].map(k=>`<button type="button" data-v="${k}">${k==='y'?'✓ ใช่':k==='n'?'✗ ไม่ใช่':'ไม่มีสินค้านี้'}</button>`).join('');
+  shell(`<h2 style="margin:6px 0 2px">${isNew?'📝 ลงทะเบียนร้านค้าใหม่':'🏪 '+esc(st.name)}</h2>
+    <div class="small muted" style="margin-bottom:10px">หน่วยบริการ: <b>${esc(shortUnit(unitN))}</b></div>
+    ${pending?`<div class="info small">ร้านของคุณส่งข้อมูลไปแล้ว ${pending} รายการ กำลังรอเจ้าหน้าที่ตรวจรับ (ส่งเพิ่มได้)</div>`:''}
+    <div class="info small">กรอกเฉพาะข้อมูลที่ต้องการแจ้งหรือแก้ไข ข้อมูลจะถูกส่งให้เจ้าหน้าที่ ${esc(shortUnit(unitN))} ตรวจสอบก่อนบันทึกในระบบ</div>
+    <h3 style="margin:14px 0 8px">1. ข้อมูลร้านค้า</h3>
+    <label class="f"><span>ชื่อร้านค้า ${isNew?'*':''}</span><input class="i" data-f="name" value="${esc(st.name||'')}"></label>
+    <div class="grid2">
+      <label class="f"><span>หมู่บ้าน</span><input class="i" data-f="village" value="${esc(st.village||'')}"></label>
+      <label class="f"><span>หมู่ที่</span><input class="i" data-f="moo" inputmode="numeric" value="${esc(st.moo||'')}"></label>
+      <label class="f"><span>ประเภทร้านค้า</span><select class="i" data-f="type">${opt(STORE_TYPES,st.type)}</select></label>
+      <label class="f"><span>ลักษณะสถานประกอบการ</span><select class="i" data-f="kind">${opt(STORE_KINDS,st.kind)}</select></label>
+      <label class="f"><span>ชื่อเจ้าของร้าน</span><input class="i" data-f="owner" value="${esc(st.owner||'')}"></label>
+      <label class="f"><span>ผู้ดูแลร้าน</span><input class="i" data-f="caretaker" value="${esc(st.caretaker||'')}"></label>
+      <label class="f"><span>เบอร์โทรศัพท์</span><input class="i" data-f="phone" type="tel" value="${esc(st.phone||'')}"></label>
+      <label class="f"><span>ทะเบียนพาณิชย์/ใบอนุญาต</span><input class="i" data-f="license" value="${esc(st.license||'')}"></label>
+    </div>
+    <label class="f"><span>ที่อยู่</span><input class="i" data-f="address" value="${esc(st.address||'')}"></label>
+    <div class="small" style="margin-bottom:6px"><b>📷 ภาพหน้าร้าน</b></div><div class="photos" id="sph"></div>
+    <div class="small" style="margin:12px 0 6px"><b>📍 ตำแหน่งร้าน</b> <span class="muted" id="sll">${st.lat?esc(st.lat+', '+st.lng):'ยังไม่ระบุ'}</span></div>
+    <button class="btn" data-a="gps">📍 ใช้ตำแหน่งปัจจุบัน (ยืนอยู่ที่ร้าน)</button>
+    <h3 style="margin:18px 0 8px">2. ประเมินตนเอง ${isNew?'(ไม่บังคับ)':''}</h3>
+    <label class="opt"><input type="checkbox" id="doA" ${doAssess?'checked':''}><span>ต้องการประเมินตนเองด้วย — ช่วยให้ร้านรู้ว่าต้องปรับปรุงอะไร</span></label>
+    <div id="asec" ${doAssess?'':'hidden'}>
+      ${CHECK.map(sec=>`<div class="card" style="margin-top:10px"><h3 style="margin:0 0 6px">${sec.icon} ${sec.title}</h3>
+        ${sec.items.map(it=>`<div class="item"><div class="lbl">${esc(it.label)}</div><div class="tri" data-item="${it.id}">${tri(it.id)}</div></div>`).join('')}</div>`).join('')}
+      <div class="card" style="margin-top:10px"><h3 style="margin:0 0 6px">🚚 แหล่งที่ซื้อสินค้า</h3>
+        <div class="opts">${SOURCES.map(([k,t])=>`<label class="opt"><input type="checkbox" data-src="${k}"><span>${t}</span></label>`).join('')}</div>
+        <h3 style="margin:12px 0 6px">🎓 การอบรม คบส.</h3>
+        <div class="opts"><label class="opt"><input type="radio" name="str" value="yes"><span>เคยเข้ารับการอบรม</span></label><label class="opt"><input type="radio" name="str" value="no"><span>ไม่เคยอบรม</span></label></div>
+        <label class="f" style="margin-top:10px"><span>ความคิดเห็น / สิ่งที่อยากให้เจ้าหน้าที่ช่วย</span><textarea class="i" id="scom"></textarea></label></div>
+    </div>
+    <h3 style="margin:18px 0 8px">3. ผู้ส่งข้อมูล</h3>
+    <div class="grid2"><label class="f"><span>ชื่อผู้กรอก</span><input class="i" id="scn"></label><label class="f"><span>เบอร์ติดต่อกลับ</span><input class="i" id="scp" type="tel"></label></div>
+    <button class="btn pri block" data-a="send" style="padding:14px;font-size:17px">📤 ส่งข้อมูลให้เจ้าหน้าที่</button>
+    <p class="small muted" style="text-align:center">ข้อมูลใช้เพื่อการเฝ้าระวังความปลอดภัยผลิตภัณฑ์สุขภาพในชุมชนเท่านั้น · <a href="privacy.html">นโยบายความเป็นส่วนตัว</a></p>`);
+  const drawPh=()=>{const cur=photo||st.photo;$('#sph').innerHTML=(cur?`<div class="ph"><img referrerpolicy="no-referrer" src="${imgSrc(cur)}"></div>`:'')+photoBtns(cur?'ถ่ายใหม่':'ถ่ายภาพ')};drawPh();
+  let ll=null;
+  v.oninput=e=>{if(e.target.dataset.f)e.target.dataset.t='1'};
+  v.onchange=e=>{const t=e.target;if(t.dataset.f)t.dataset.t='1';if(t.id==='doA'){doAssess=t.checked;$('#asec').hidden=!doAssess}};
+  v.onclick=async e=>{const tb=e.target.closest('.tri button');
+    if(tb){const g=tb.parentElement;$$('button',g).forEach(x=>x.classList.toggle('on',x===tb));F.answers[g.dataset.item]=tb.dataset.v;return}
+    const b=e.target.closest('[data-act],[data-a]');if(!b)return;const a=b.dataset.act||b.dataset.a;
+    if(a==='cam'||a==='gal'){const d=await pickImage(a==='cam'?'camera':'gallery');if(d){photo=d;drawPh()}}
+    else if(a==='gps'){b.disabled=true;try{const p=await getGPS();ll=p;$('#sll').textContent=`${p.lat}, ${p.lng} ✓`;toast(`ได้ตำแหน่งแล้ว (±${p.acc} ม.)`)}catch(err){toast(err.message,4000)}b.disabled=false}
+    else if(a==='send'){
+      const info={};$$('[data-f]').forEach(i=>{const val=i.value.trim();if(isNew?val:(i.dataset.t&&val!==String(st[i.dataset.f]??'')))info[i.dataset.f]=val});
+      if(ll){info.lat=String(ll.lat);info.lng=String(ll.lng)}
+      if(isNew&&!info.name){toast('กรุณากรอกชื่อร้านค้า');return}
+      let assessment=null;
+      if(doAssess){F.sources=$$('[data-src]').filter(x=>x.checked).map(x=>x.dataset.src);const tr=$('input[name=str]:checked');F.training=tr?tr.value:'';F.comment=$('#scom').value.trim();
+        if(Object.keys(F.answers).length)assessment={answers:F.answers,sources:F.sources,training:F.training,comment:F.comment,notes:{}}}
+      if(!Object.keys(info).length&&!assessment&&!photo){toast('ยังไม่มีข้อมูลที่จะส่ง');return}
+      b.disabled=true;b.textContent='⏳ กำลังส่ง…';
+      try{await api('selfSubmit',{[isNew?'unitId':'token']:key,info,assessment,photo:photo?photo.split(',')[1]:'',contactName:$('#scn').value.trim(),contactPhone:$('#scp').value.trim()});
+        const r=assessment?evaluate({answers:F.answers,tests:{},sources:F.sources,training:F.training}):null;
+        const fails=r?r.fails.map(fid=>ALL_ITEMS.find(x=>x.id===fid)).filter(Boolean):[];
+        shell(`<div style="text-align:center;padding:10px 0"><div style="font-size:52px">✅</div><h2 style="margin:6px 0">ส่งข้อมูลเรียบร้อย</h2><p class="muted">เจ้าหน้าที่ ${esc(shortUnit(unitN))} จะตรวจสอบข้อมูล ขอบคุณที่ร่วมดูแลความปลอดภัยของผู้บริโภคในชุมชน</p></div>
+          ${r&&r.pct!=null?`<div class="res b-${r.level}" style="margin-bottom:12px"><b>ผลประเมินตนเอง: ${r.pct}%</b>${r.label} (ผ่าน ${r.pass} · ไม่ผ่าน ${r.fail})</div>`:''}
+          ${fails.length?`<div class="card"><h3>💡 สิ่งที่ร้านควรปรับปรุง</h3><ul class="tight">${fails.map(it=>`<li>${esc(recFor(it))}</li>`).join('')}</ul></div>`:r?'<div class="info">เยี่ยมมาก! ร้านของคุณผ่านทุกข้อที่ประเมิน</div>':''}
+          ${kind==='self'?'<button class="btn block" onclick="location.reload()">กลับไปหน้าร้าน</button>':''}`)}
+      catch(err){toast(err.message,4500);b.disabled=false;b.textContent='📤 ส่งข้อมูลให้เจ้าหน้าที่'}}};
+}
+
+/* ====================== ลิงก์/QR ให้ร้านค้า ====================== */
+let qrLib=null;function loadQR(){if(window.qrcode)return Promise.resolve();if(qrLib)return qrLib;
+  qrLib=new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';s.onload=()=>res();s.onerror=()=>{qrLib=null;rej()};document.head.appendChild(s)});return qrLib}
+async function showLink(title,url,note){
+  const md=document.createElement('div');md.className='modal';md.dataset.nav='1';
+  md.innerHTML=`<div class="box" style="flex:none;margin:auto;max-width:420px;padding:16px;overflow:auto"><div class="row" style="justify-content:space-between"><b>${esc(title)}</b><button class="btn sm" data-c="x">ปิด</button></div>
+    <div id="qrbox" style="text-align:center;margin:12px 0"></div>
+    <input class="i" readonly value="${esc(url)}" style="font-size:13px">
+    <p class="small muted">${note||''}</p>
+    <div class="btns"><button class="btn pri" data-c="share">📤 แชร์ (LINE ฯลฯ)</button><button class="btn" data-c="copy">📋 คัดลอกลิงก์</button><button class="btn" data-c="dl">⬇ บันทึก QR</button></div></div>`;
+  document.body.appendChild(md);
+  try{await loadQR();const q=qrcode(0,'M');q.addData(url);q.make();$('#qrbox',md).innerHTML=q.createImgTag(6,10)}catch(e){$('#qrbox',md).innerHTML='<span class="small muted">(สร้าง QR ไม่ได้ ใช้ลิงก์ด้านล่างแทน)</span>'}
+  md.onclick=async e=>{const b=e.target.closest('[data-c]');if(!b&&e.target===md){md.remove();return}if(!b)return;
+    if(b.dataset.c==='x')md.remove();
+    else if(b.dataset.c==='copy'){try{await navigator.clipboard.writeText(url);toast('คัดลอกแล้ว ✓')}catch(err){$('input',md).select();toast('กดค้างที่ลิงก์เพื่อคัดลอก')}}
+    else if(b.dataset.c==='share'){if(navigator.share){try{await navigator.share({title,text:title,url})}catch(err){}}else{window.open('https://line.me/R/msg/text/?'+encodeURIComponent(title+'\n'+url),'_blank')}}
+    else if(b.dataset.c==='dl'){const im=$('#qrbox img',md);if(!im){toast('ไม่มี QR');return}const a=document.createElement('a');a.href=im.src;a.download=title.replace(/[^\wก-๙]+/g,'_')+'.gif';a.click()}};
+}
+async function storeSelfLink(s){
+  if(!navigator.onLine){toast('ต้องเชื่อมต่ออินเทอร์เน็ต');return}
+  try{if(S.queueN)await sync(false);const j=await api('storeLink',{storeId:s.id});
+    showLink('ลิงก์ร้าน '+s.name,j.url,'ส่งลิงก์หรือให้ร้านสแกน QR เพื่อกรอกข้อมูลร้านและประเมินตนเอง (ไม่ต้องสมัครสมาชิก) — ข้อมูลจะเข้ากล่อง “ข้อมูลจากร้านค้า” ให้เจ้าหน้าที่ตรวจรับก่อน')}
+  catch(e){toast(e.message,4500)}
+}
+function unitSelfLink(){const uid=me().unitId;if(!uid){toast('บัญชีนี้ไม่ได้สังกัดหน่วยบริการ');return}
+  const base=location.href.split('#')[0].split('?')[0];
+  showLink('ลงทะเบียนร้านค้าใหม่ — '+myUnitName(),base+'#selfnew/'+uid,'ลิงก์/QR ประจำหน่วยบริการ ให้ร้านค้าใหม่ในพื้นที่ลงทะเบียนเอง ติดไว้ที่ รพ.สต. หรือส่งในกลุ่ม LINE หมู่บ้านได้')}
+
+/* ====================== กล่องข้อมูลจากร้านค้า ====================== */
+async function viewInbox(){
+  setHeader('📥 ข้อมูลจากร้านค้า',myUnitName()||'',true);const v=$('#view');v.innerHTML='<div class="empty">⏳ กำลังโหลด…</div>';
+  let reps;try{reps=(await api('selfList')).reports}catch(e){v.innerHTML=`<div class="empty">โหลดไม่สำเร็จ: ${esc(e.message)}</div>`;return}
+  if(S.route.v!=='inbox')return;
+  const canRev=['superadmin','unitadmin','staff'].includes(me().role);
+  const pend=reps.filter(r=>r.status==='pending');S.selfPending=pend.length;setSelfBadge();
+  const fmt=(k,val)=>k==='photo'?(val?`<img src="${imgSrc(val)}" referrerpolicy="no-referrer" style="width:120px;border-radius:8px">`:'-'):esc(val||'-');
+  const card=r=>{const d=r.data||{};const st=r.storeId?storeById(r.storeId):null;const info=d.info||{};
+    const res=d.assessment?evaluate({answers:d.assessment.answers||{},tests:{},sources:d.assessment.sources||[],training:d.assessment.training}):null;
+    const fails=res?res.fails.map(f=>(ALL_ITEMS.find(x=>x.id===f)||{}).s).filter(Boolean):[];
+    return `<div class="card" data-id="${r.id}" ${r.status!=='pending'?'style="opacity:.65"':''}>
+      <div class="row" style="justify-content:space-between"><b>${r.type==='new'?'🆕 ร้านค้าใหม่ลงทะเบียน':'🏪 '+esc(r.storeName||st&&st.name||'-')}</b>
+        <span class="badge ${r.status==='pending'?'b-yellow':r.status==='accepted'?'b-green':'b-none'}">${r.status==='pending'?'รอตรวจรับ':r.status==='accepted'?'รับแล้ว':'ไม่รับ'}</span></div>
+      <div class="small muted">ส่งเมื่อ ${thDateTime(r.created)}${r.contact?' · ผู้ส่ง: '+esc(r.contact):''}${r.reviewedBy?' · ตรวจโดย '+esc(r.reviewedBy):''}</div>
+      ${Object.keys(info).length?`<table class="t" style="margin-top:8px"><tr><th>ข้อมูล</th>${r.type==='new'?'':'<th>เดิม</th>'}<th>${r.type==='new'?'ที่ร้านกรอก':'ใหม่'}</th></tr>
+        ${Object.keys(info).map(k=>`<tr><td>${SELF_LABEL[k]||k}</td>${r.type==='new'?'':`<td class="muted">${fmt(k,st&&st[k])}</td>`}<td><b>${fmt(k,info[k])}</b></td></tr>`).join('')}</table>`:''}
+      ${res?`<div class="res b-${res.level}" style="margin-top:8px;padding:8px"><b style="font-size:16px">ประเมินตนเอง ${res.pct??'-'}% · ${res.label}</b>ผ่าน ${res.pass} · ไม่ผ่าน ${res.fail}</div>
+        ${fails.length?`<div class="small ng" style="margin-top:4px">ข้อที่ร้านตอบว่าไม่ผ่าน: ${esc(fails.join(', '))}</div>`:''}${d.assessment.comment?`<div class="small" style="margin-top:4px">💬 ${esc(d.assessment.comment)}</div>`:''}`:''}
+      ${r.status==='pending'&&canRev?`<div class="row" style="margin-top:10px">
+        ${Object.keys(info).length&&res?`<label class="small"><input type="checkbox" data-ai checked> รับข้อมูลร้าน</label><label class="small"><input type="checkbox" data-aa checked> รับผลประเมินตนเอง</label>`:''}
+        <span class="grow"></span><button class="btn danger sm" data-rv="reject">✗ ไม่รับ</button><button class="btn pri sm" data-rv="accept">✓ ${r.type==='new'?'รับเป็นร้านใหม่':'รับข้อมูล'}</button></div>`:''}
+      ${r.status==='accepted'&&(st||r.type==='new')?(st?`<a class="btn sm" style="margin-top:8px" href="#store/${st.id}">ดูหน้าร้าน</a>`:''):''}
+    </div>`};
+  v.innerHTML=`<div class="info small">ข้อมูลที่ร้านค้ากรอกเองผ่านลิงก์/QR จะยังไม่ถูกบันทึกจนกว่าเจ้าหน้าที่จะกด “รับข้อมูล”${canRev?'':' (อสม. ดูได้อย่างเดียว)'}</div>
+    ${canEdit()&&me().unitId?'<button class="btn block" data-unitlink style="margin-bottom:12px">🔗 ลิงก์/QR ลงทะเบียนร้านค้าใหม่ของหน่วย</button>':''}
+    <h3>รอตรวจรับ (${pend.length})</h3>${pend.map(card).join('')||'<div class="empty" style="padding:14px">ไม่มีรายการรอตรวจรับ</div>'}
+    ${reps.length>pend.length?`<h3>ตรวจรับแล้ว</h3>${reps.filter(r=>r.status!=='pending').slice(0,30).map(card).join('')}`:''}`;
+  v.onclick=async e=>{if(e.target.closest('[data-unitlink]')){unitSelfLink();return}
+    const b=e.target.closest('[data-rv]');if(!b)return;const c=b.closest('[data-id]');
+    if(b.dataset.rv==='reject'&&!confirm('ไม่รับข้อมูลรายการนี้?'))return;
+    b.disabled=true;try{const ai=$('[data-ai]',c),aa=$('[data-aa]',c);
+      await api('selfReview',{id:c.dataset.id,decision:b.dataset.rv,applyInfo:ai?ai.checked:true,applyAssessment:aa?aa.checked:true});
+      toast(b.dataset.rv==='accept'?'รับข้อมูลแล้ว ✓':'ไม่รับข้อมูลแล้ว');await sync(false);viewInbox()}catch(err){toast(err.message,4500);b.disabled=false}};
+}
+function setSelfBadge(){const b=$('nav.bottom button[data-v=list]');if(!b)return;let x=$('.nb',b);const n=S.selfPending||0;
+  if(n&&['superadmin','unitadmin','staff'].includes(me().role)){if(!x){x=document.createElement('span');x.className='nb';b.appendChild(x)}x.textContent=n}else if(x)x.remove()}
+
+/* ====================== กล่องจดหมาย ====================== */
+S.msgs=null;S.msgUnread=0;
+function setMailBadge(n){if(n!==undefined){const prev=S.msgUnread||0;S.msgUnread=n;
+    if(n>prev&&S.route&&S.route.v==='mail'&&!S.route.a){S.msgsAt=0;viewMail()}
+    else if(n>prev&&S.route&&S.route.v!=='mail'){toast(`📬 มีข้อความใหม่ ${n} ข้อความ — แตะเพื่อเปิด`,5000);const t=$('.toast');t.style.cursor='pointer';t.onclick=()=>{t.hidden=true;location.hash='#mail'}}}
+  const b=$('nav.bottom button[data-v=mail]');if(!b)return;let x=$('.nb',b);
+  if(S.msgUnread){if(!x){x=document.createElement('span');x.className='nb';b.appendChild(x)}x.textContent=S.msgUnread>99?'99+':S.msgUnread}else if(x)x.remove()}
+async function loadMsgs(force){
+  if(!S.msgs){const c=await idb.get('kv','msgs');if(c)S.msgs=c}
+  if(!navigator.onLine)return S.msgs||[];
+  if(force||!S.msgsAt||Date.now()-S.msgsAt>20000){const j=await api('msgList');S.msgs=j.messages;S.msgsAt=Date.now();setMailBadge(j.unread);await idb.put('kv',S.msgs,'msgs')}
+  return S.msgs}
+const msgWho=m=>m.mine?'ถึง: '+(m.toLabel||m.to):(m.kind==='sys'?'🔔 ระบบแจ้งเตือน':m.fromName||m.from);
+const msgAgo=ms=>{const d=(Date.now()-ms)/6e4;return d<1?'เมื่อสักครู่':d<60?Math.floor(d)+' นาทีที่แล้ว':d<1440?Math.floor(d/60)+' ชม.ที่แล้ว':thDate(new Date(ms).toISOString().slice(0,10))};
+async function viewMail(a){
+  if(a==='new')return viewCompose();
+  if(a)return viewMsg(a);
+  setHeader('📬 กล่องจดหมาย',me().name||me().email,false);const v=$('#view');
+  if(!S.msgs)v.innerHTML='<div class="empty">⏳ กำลังโหลด…</div>';
+  const tab=S.mailTab||'in';let q='';
+  const draw=()=>{const all=S.msgs||[];
+    const L={in:all.filter(m=>!m.mine),unread:all.filter(m=>!m.mine&&!m.read),sys:all.filter(m=>m.kind==='sys'),sent:all.filter(m=>m.mine)}[S.mailTab||'in'];
+    const ql=q.toLowerCase();const list=ql?L.filter(m=>(m.subject+' '+m.body+' '+m.fromName+' '+m.toLabel).toLowerCase().includes(ql)):L;
+    const T=[['in','📥 กล่องเข้า'],['unread','🔵 ยังไม่อ่าน'+(S.msgUnread?' ('+S.msgUnread+')':'')],['sys','🔔 แจ้งเตือน'],['sent','📤 ส่งแล้ว']];
+    $('#mtabs').innerHTML=T.map(([k,t])=>`<button class="btn sm ${k===(S.mailTab||'in')?'pri':''}" data-tab="${k}">${t}</button>`).join('');
+    $('#mlist').innerHTML=list.length?list.map(m=>`<div class="card mitem ${!m.read?'unread':''}" data-go="#mail/${m.id}">
+        <div class="row" style="justify-content:space-between;flex-wrap:nowrap"><span class="small ${m.read?'muted':''}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${!m.read?'<i class="udot"></i>':''}${esc(msgWho(m))}</span><span class="small muted" style="white-space:nowrap">${msgAgo(m.created)}</span></div>
+        <div style="font-weight:${m.read?500:800};margin-top:2px">${esc(m.subject||'(ไม่มีหัวเรื่อง)')}</div>
+        <div class="small muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(m.body||'').replace(/\n/g,' · '))}</div></div>`).join('')
+      :`<div class="empty">${q?'ไม่พบข้อความที่ค้นหา':'ยังไม่มีข้อความ'}</div>`};
+  v.innerHTML=`<div class="row" style="margin-bottom:10px"><button class="btn pri" data-new>✏️ เขียนข้อความ</button><span class="grow"></span><button class="btn sm" data-allread>✓ อ่านทั้งหมด</button><button class="btn sm" data-reload>⟳</button></div>
+    <div class="row" id="mtabs" style="margin-bottom:8px"></div>
+    <input class="i" id="mq" placeholder="🔍 ค้นหาข้อความ" style="margin-bottom:10px">
+    <div id="mlist"></div>`;
+  if(S.msgs)draw();
+  v.oninput=e=>{if(e.target.id==='mq'){q=e.target.value;draw()}};
+  v.onclick=async e=>{const t=e.target.closest('[data-tab]');if(t){S.mailTab=t.dataset.tab;draw();return}
+    if(e.target.closest('[data-new]')){S.mailDraft=null;location.hash='#mail/new';return}
+    if(e.target.closest('[data-reload]')){try{await loadMsgs(true);draw()}catch(err){toast(err.message)}return}
+    if(e.target.closest('[data-allread]')){const ids=(S.msgs||[]).filter(m=>!m.read).map(m=>m.id);if(!ids.length)return;
+      try{const j=await api('msgRead',{ids});S.msgs.forEach(m=>m.read=true);setMailBadge(j.unread||0);draw();toast('อ่านทั้งหมดแล้ว ✓')}catch(err){toast(err.message)}return}
+    const g=e.target.closest('[data-go]');if(g)location.hash=g.dataset.go};
+  try{await loadMsgs(true);if(S.route.v==='mail'&&!S.route.a)draw()}catch(err){if(!S.msgs)v.querySelector('#mlist').innerHTML=`<div class="empty">โหลดไม่สำเร็จ: ${esc(err.message)}</div>`}
+}
+async function viewMsg(id){
+  setHeader('📬 ข้อความ','',true);const v=$('#view');
+  let m=(S.msgs||[]).find(x=>x.id===id);if(!m){try{await loadMsgs(true)}catch(e){}m=(S.msgs||[]).find(x=>x.id===id)}
+  if(!m){v.innerHTML='<div class="empty">ไม่พบข้อความ</div>';return}
+  const orig=m.replyTo&&(S.msgs||[]).find(x=>x.id===m.replyTo);
+  const replies=(S.msgs||[]).filter(x=>x.replyTo===m.id).sort((a,b)=>a.created-b.created);
+  const linkLbl=m.link==='#users'?'👥 เปิดหน้าจัดการผู้ใช้':m.link==='#inbox'?'📥 เปิดข้อมูลจากร้านค้า':/^#store/.test(m.link)?'🏪 เปิดหน้าร้านค้า':/^#report/.test(m.link)?'📄 เปิดผลตรวจ':m.link?'➡️ เปิด':'';
+  const canReply=!m.mine&&m.kind!=='sys';
+  v.innerHTML=`<div class="card"><h2 style="margin:0 0 6px">${esc(m.subject||'(ไม่มีหัวเรื่อง)')}</h2>
+      <div class="small muted">${m.mine?'ถึง: <b>'+esc(m.toLabel||m.to)+'</b>':'จาก: <b>'+esc(m.kind==='sys'?'ระบบแจ้งเตือน':(m.fromName||m.from))+'</b>'+(m.kind!=='sys'?' &lt;'+esc(m.from)+'&gt;':'')+(m.to.includes('@')?'':' · ถึง '+esc(m.toLabel))}</div>
+      <div class="small muted">${thDateTime(m.created)}</div>
+      <div style="white-space:pre-wrap;margin-top:12px;line-height:1.7">${esc(m.body||'')}</div>
+      ${linkLbl&&(m.link!=='#users'||isAdmin()||me().role==='staff')?`<a class="btn pri" href="${esc(m.link)}" style="margin-top:12px">${linkLbl}</a>`:''}</div>
+    ${orig?`<div class="card" style="background:#f8fafc"><div class="small muted">ตอบกลับข้อความ: ${esc(msgWho(orig))} · ${thDateTime(orig.created)}</div><b>${esc(orig.subject)}</b><div class="small" style="white-space:pre-wrap">${esc(orig.body)}</div></div>`:''}
+    ${replies.map(r=>`<div class="card" style="background:#f0fdfa" data-go="#mail/${r.id}"><div class="small muted">↩️ ${esc(msgWho(r))} · ${thDateTime(r.created)}</div><div class="small" style="white-space:pre-wrap">${esc(r.body)}</div></div>`).join('')}
+    <div class="row">${canReply?'<button class="btn pri" data-rep>↩️ ตอบกลับ</button>':''}<button class="btn" data-back>‹ กล่องจดหมาย</button><span class="grow"></span><button class="btn danger sm" data-hide>🗑 ลบ</button></div>`;
+  if(!m.read){m.read=true;api('msgRead',{ids:[id]}).then(j=>setMailBadge(j.unread||0)).catch(()=>{});setMailBadge(Math.max(0,S.msgUnread-1));idb.put('kv',S.msgs,'msgs')}
+  v.onclick=async e=>{
+    if(e.target.closest('[data-back]')){location.hash='#mail';return}
+    const g=e.target.closest('[data-go]');if(g){location.hash=g.dataset.go;return}
+    if(e.target.closest('[data-rep]')){S.mailDraft={to:m.from,toLabel:m.fromName||m.from,subject:/^Re:/.test(m.subject)?m.subject:'Re: '+m.subject,replyTo:m.id,link:m.link&&/^#(store|report)/.test(m.link)?m.link:''};location.hash='#mail/new';return}
+    if(e.target.closest('[data-hide]')){if(!confirm('ลบข้อความนี้ออกจากกล่องจดหมายของคุณ?'))return;
+      try{await api('msgHide',{ids:[id]});S.msgs=S.msgs.filter(x=>x.id!==id);idb.put('kv',S.msgs,'msgs');toast('ลบแล้ว');location.hash='#mail'}catch(err){toast(err.message)}}};
+}
+async function viewCompose(){
+  const d=S.mailDraft||{};setHeader(d.replyTo?'↩️ ตอบกลับ':'✏️ เขียนข้อความ','',true);const v=$('#view');
+  if(!navigator.onLine){v.innerHTML='<div class="empty">ต้องเชื่อมต่ออินเทอร์เน็ตเพื่อส่งข้อความ</div>';return}
+  v.innerHTML='<div class="empty">⏳ กำลังโหลดรายชื่อ…</div>';
+  let c;try{c=S.contacts&&Date.now()-S.contactsAt<300000?S.contacts:await api('msgContacts');S.contacts=c;S.contactsAt=Date.now()}catch(e){v.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}
+  if(S.route.v!=='mail'||S.route.a!=='new')return;
+  const people=c.people.slice().sort((a,b)=>(a.role==='superadmin'?0:1)-(b.role==='superadmin'?0:1)||a.name.localeCompare(b.name,'th'));
+  const fixedTo=d.replyTo&&!people.some(p=>p.email===d.to)?`<option value="${esc(d.to)}" selected>${esc(d.toLabel)}</option>`:'';
+  const st=d.link&&/^#store\//.test(d.link)?storeById(d.link.split('/')[1]):null;
+  v.innerHTML=`<div class="card">
+    <label class="f"><span>ถึง *</span><input class="i" id="cfind" placeholder="🔍 พิมพ์ค้นหาชื่อผู้รับ" style="margin-bottom:6px" ${d.replyTo?'hidden':''}>
+      <select class="i" id="cto" size="1">${fixedTo}<option value="">— เลือกผู้รับ —</option>
+        <optgroup label="👥 ส่งเป็นกลุ่ม">${c.groups.map(g=>`<option value="${esc(g.to)}" ${d.to===g.to?'selected':''}>${esc(g.label)}</option>`).join('')}</optgroup>
+        <optgroup label="👤 รายบุคคล">${people.map(p=>`<option value="${esc(p.email)}" ${d.to===p.email?'selected':''}>${esc(p.name)} · ${ROLE_T[p.role]||p.role}${p.role==='superadmin'?'':' · '+esc(shortUnit(p.unit))}</option>`).join('')}</optgroup></select></label>
+    <label class="f"><span>เรื่อง</span><input class="i" id="csub" maxlength="200" value="${esc(d.subject||'')}"></label>
+    <label class="f"><span>ข้อความ *</span><textarea class="i" id="cbody" rows="6" maxlength="5000" placeholder="พิมพ์ข้อความ…">${esc(d.body||'')}</textarea></label>
+    <div class="row small" style="margin-bottom:8px">${['แจ้งนัดตรวจร้านค้า','ขอให้ตรวจสอบข้อมูลร้าน','รับทราบ ขอบคุณครับ/ค่ะ','ส่งรายงานแล้ว'].map(t=>`<button class="btn sm" data-tpl="${esc(t)}">${esc(t)}</button>`).join('')}</div>
+    ${st?`<div class="info small">🔗 แนบลิงก์ร้าน: <b>${esc(st.name)}</b> <button class="btn sm" data-unlink>เอาออก</button></div>`:''}
+    <label class="small" id="cmailw" hidden><input type="checkbox" id="cmail"> ส่งอีเมลแจ้งผู้รับด้วย</label>
+    <button class="btn pri block" id="csend" style="margin-top:10px;padding:13px">📤 ส่งข้อความ</button></div>`;
+  let link=st?d.link:'';
+  const upd=()=>{$('#cmailw').hidden=!$('#cto').value.includes('@')};upd();
+  v.oninput=e=>{if(e.target.id==='cfind'){const q=e.target.value.toLowerCase();$$('#cto option').forEach(o=>{if(o.value)o.hidden=q&&!o.textContent.toLowerCase().includes(q)});
+    const first=$$('#cto option').find(o=>o.value&&!o.hidden);if(q&&first)$('#cto').value=first.value;upd()}};
+  v.onchange=e=>{if(e.target.id==='cto')upd()};
+  v.onclick=async e=>{const t=e.target.closest('[data-tpl]');if(t){const b=$('#cbody');b.value=(b.value?b.value+'\n':'')+t.dataset.tpl;if(!$('#csub').value)$('#csub').value=t.dataset.tpl;return}
+    if(e.target.closest('[data-unlink]')){link='';e.target.closest('.info').remove();return}
+    const b=e.target.closest('#csend');if(!b)return;
+    const to=$('#cto').value,subject=$('#csub').value.trim(),body=$('#cbody').value.trim();
+    if(!to){toast('กรุณาเลือกผู้รับ');return}if(!body){toast('กรุณาพิมพ์ข้อความ');return}
+    if(!to.includes('@')&&!confirm('ส่งข้อความถึงกลุ่ม “'+$('#cto').selectedOptions[0].textContent+'” ?'))return;
+    b.disabled=true;b.textContent='⏳ กำลังส่ง…';
+    try{await api('msgSend',{to,subject,body:body+(link&&st?'':''),link,replyTo:d.replyTo||'',email:$('#cmail').checked});
+      S.mailDraft=null;toast('ส่งข้อความแล้ว ✓');S.mailTab='sent';S.msgsAt=0;location.hash='#mail'}
+    catch(err){toast(err.message,4500);b.disabled=false;b.textContent='📤 ส่งข้อความ'}};
 }
 
 /* ====================== view: settings ====================== */
@@ -1147,6 +1427,8 @@ function viewSettings(){
       <div class="small" style="margin:10px 0">${esc(u.position||'')}${u.phone?' · '+esc(u.phone):''}<br>หน่วยบริการ: <b>${esc(myUnitName()||(isSuper()?'ทุกหน่วยบริการ':'-'))}</b></div>
       ${!u.unitId&&!isSuper()?'<div class="note">⚠ บัญชียังไม่ได้กำหนดหน่วยบริการ — บันทึกข้อมูลไม่ได้ กรุณาติดต่อผู้ดูแลระบบสูงสุด</div>':''}
       <div class="btns"><button class="btn" data-act="profile">✏️ แก้ไขข้อมูลส่วนตัว</button><button class="btn danger" data-act="logout">ออกจากระบบ</button></div>
+      ${me().role==='staff'?'<a class="btn pri block" href="#users" style="margin-top:10px">👥 จัดการ อสม. ในหน่วย (อนุมัติ/กำหนดสิทธิ์)</a>':''}
+      ${me().role==='osm'?`<div class="small" style="margin-top:8px">🔑 สิทธิ์ของคุณ: ${String(me().perms||'').split(',').filter(Boolean).map(k=>OSM_PERMS[k]).join(', ')||'ยังไม่ได้รับสิทธิ์ (ติดต่อเจ้าหน้าที่)'}</div>`:''}
       ${isAdmin()?`<a class="btn pri block" id="usersBtn" href="#users" style="margin-top:10px">👥 จัดการผู้ใช้ / อนุมัติผู้สมัคร${S.pending?` (รอ ${S.pending} คน)`:''}</a>`:''}
     </div>
     ${!isSuper()&&u.unitId?`<div class="card"><h3>🔁 ย้ายหน่วยบริการ</h3>
