@@ -16,7 +16,36 @@ const ADMIN_EMAILS = [];                // ผู้ดูแลระบบส�
 const APP_NAME = 'ShopStation';
 const APP_URL = 'https://pongop101.github.io/shopstation/app/';   // ลิงก์แอป (ใช้ในอีเมลแจ้งเตือน)
 const SESSION_DAYS = 30;                // อายุการเข้าสู่ระบบ (วัน)
-const DEFAULT_UNITS = ['รพ.สต.บ้านดอนกลอย', 'รพ.สต.บ้านตาดทอง'];   // หน่วยบริการเริ่มต้น (สร้างตอน setup ถ้ายังไม่มี)
+// หน่วยบริการ [รหัสหน่วยบริการ 5 หลัก, ชื่อ] — setup จะเพิ่ม/ปรับชื่อให้ตรงรายการนี้ (หน่วยที่มีอยู่แล้วจับคู่ด้วยรหัสหรือชื่อตำบล)
+const DEFAULT_UNITS = [
+  ['03822', 'โรงพยาบาลส่งเสริมสุขภาพตำบลอำเภอเมืองยโสธร'],
+  ['03823', 'โรงพยาบาลส่งเสริมสุขภาพตำบลห้องข่า'],
+  ['03824', 'โรงพยาบาลส่งเสริมสุขภาพตำบลตาดทอง'],
+  ['03825', 'โรงพยาบาลส่งเสริมสุขภาพตำบลสว่าง'],
+  ['03826', 'โรงพยาบาลส่งเสริมสุขภาพตำบลคำน้ำสร้าง'],
+  ['03827', 'โรงพยาบาลส่งเสริมสุขภาพตำบลดอนกลอย'],
+  ['03828', 'โรงพยาบาลส่งเสริมสุขภาพตำบลสามเพีย'],
+  ['03829', 'โรงพยาบาลส่งเสริมสุขภาพตำบลดู่ทุ่ง'],
+  ['03830', 'โรงพยาบาลส่งเสริมสุขภาพตำบลคำแดง'],
+  ['03831', 'โรงพยาบาลส่งเสริมสุขภาพตำบลคำฮี'],
+  ['03832', 'โรงพยาบาลส่งเสริมสุขภาพตำบลทุ่งแต้'],
+  ['03833', 'โรงพยาบาลส่งเสริมสุขภาพตำบลสิงห์'],
+  ['03834', 'โรงพยาบาลส่งเสริมสุขภาพตำบลนาสะไมย์'],
+  ['03835', 'โรงพยาบาลส่งเสริมสุขภาพตำบลหนองหอย'],
+  ['03836', 'โรงพยาบาลส่งเสริมสุขภาพตำบลหนองหิน'],
+  ['03837', 'โรงพยาบาลส่งเสริมสุขภาพตำบลโนนค้อ'],
+  ['03838', 'โรงพยาบาลส่งเสริมสุขภาพตำบลหนองคู'],
+  ['03839', 'โรงพยาบาลส่งเสริมสุขภาพตำบลหนองบัว'],
+  ['03840', 'โรงพยาบาลส่งเสริมสุขภาพตำบลขุมเงิน'],
+  ['03841', 'โรงพยาบาลส่งเสริมสุขภาพตำบลทุ่งนางโอก'],
+  ['03842', 'โรงพยาบาลส่งเสริมสุขภาพตำบลหนองเรือ'],
+  ['10701', 'โรงพยาบาลยโสธร'],
+  ['11921', 'โรงพยาบาลนายแพทย์หาญ'],
+  ['14424', 'ศูนย์สุขภาพชุมชนเมืองบ้านท่าศรีธรรม'],
+  ['22156', 'ศูนย์สุขภาพชุมชนเมืองยศ'],
+  ['22802', 'สถานพยาบาลเรือนจำจังหวัดยโสธร'],
+  ['28899', 'ศูนย์สุขภาพชุมชนตำบลเดิดค่ายบดินทรเดชา']
+];
 
 const SHEET_STORES = 'Stores';
 const SHEET_INSP = 'Inspections';
@@ -24,13 +53,14 @@ const SHEET_USERS = 'Users';
 const SHEET_UNITS = 'Units';
 const PHOTO_FOLDER = 'ShopStation Photos';
 const USER_COLS = ['email', 'name', 'position', 'unit', 'phone', 'role', 'status', 'picture', 'created', 'lastLogin', 'approvedBy', 'note', 'unitId', 'transferTo', 'transferBy', 'transferAt'];
-const UNIT_COLS = ['id', 'name', 'created', 'createdBy'];
+const UNIT_COLS = ['id', 'name', 'created', 'createdBy', 'code'];
 const ROLES = { superadmin: 'ผู้ดูแลระบบสูงสุด', unitadmin: 'ผู้ดูแลหน่วยบริการ', staff: 'เจ้าหน้าที่', viewer: 'ดูอย่างเดียว' };
 
 function setup() {
   [SHEET_STORES, SHEET_INSP].forEach(n => getSheet_(n));
   usersSheet_();
   unitsSheet_();
+  importUnits_();
   secret_();
   getFolder_();
   migrate_();
@@ -57,7 +87,7 @@ function doPost(e) {
     const a = req.action;
     // ---- ไม่ต้องเข้าระบบ ----
     if (a === 'ping') return json_({ ok: true, app: APP_NAME, sheet: SpreadsheetApp.getActiveSpreadsheet().getName(), googleClientId: GOOGLE_CLIENT_ID, otp: true,
-      units: readUnits_().map(u => ({ id: u.id, name: u.name })) });
+      units: readUnits_().map(u => ({ id: u.id, name: u.name, code: u.code })) });
     if (a === 'loginGoogle') return json_(loginGoogle_(req.credential));
     if (a === 'otpSend') return json_(otpSend_(req.email));
     if (a === 'otpVerify') return json_(otpVerify_(req.email, req.code));
@@ -402,10 +432,10 @@ function unitsSheet_() {
   let sh = ss.getSheetByName(SHEET_UNITS);
   if (!sh) {
     sh = ss.insertSheet(SHEET_UNITS);
-    sh.getRange(1, 1, 1, UNIT_COLS.length).setValues([UNIT_COLS]).setFontWeight('bold').setBackground('#bfdbfe');
     sh.setFrozenRows(1);
-    DEFAULT_UNITS.forEach(n => sh.appendRow([newId_(), n, new Date(), 'system']));
   }
+  const lc = sh.getLastColumn(); const h = lc ? sh.getRange(1, 1, 1, lc).getValues()[0] : [];
+  if (h.length < UNIT_COLS.length || UNIT_COLS.some((k, i) => h[i] !== k)) sh.getRange(1, 1, 1, UNIT_COLS.length).setValues([UNIT_COLS]).setFontWeight('bold').setBackground('#bfdbfe');
   return sh;
 }
 function newId_() { return 'u' + Utilities.getUuid().replace(/-/g, '').slice(0, 10); }
@@ -413,25 +443,29 @@ function readUnits_() {
   const sh = unitsSheet_();
   const lr = sh.getLastRow();
   if (lr < 2) return [];
-  return sh.getRange(2, 1, lr - 1, UNIT_COLS.length).getValues().map((r, i) => ({ _row: i + 2, id: String(r[0]), name: String(r[1]).trim() }))
-    .filter(u => u.id && u.name).sort((a, b) => a.name.localeCompare(b.name, 'th'));
+  return sh.getRange(2, 1, lr - 1, UNIT_COLS.length).getValues().map((r, i) => ({ _row: i + 2, id: String(r[0]), name: String(r[1]).trim(), code: String(r[4] || '').trim() }))
+    .filter(u => u.id && u.name).sort((a, b) => (a.code || '99999').localeCompare(b.code || '99999') || a.name.localeCompare(b.name, 'th'));
 }
 function unitSave_(admin, p) {
   const name = String(p.name || '').trim();
+  const code = String(p.code || '').trim();
   if (!name) throw new Error('กรุณาใส่ชื่อหน่วยบริการ');
+  if (code && !/^\d{5}$/.test(code)) throw new Error('รหัสหน่วยบริการต้องเป็นตัวเลข 5 หลัก');
   const units = readUnits_();
   if (units.some(u => u.name === name && u.id !== p.id)) throw new Error('มีหน่วยบริการชื่อนี้แล้ว');
+  if (code && units.some(u => u.code === code && u.id !== p.id)) throw new Error('มีรหัสหน่วยบริการ ' + code + ' แล้ว');
   const sh = unitsSheet_();
   if (p.id) {
     const u = units.filter(x => x.id === p.id)[0];
     if (!u) throw new Error('ไม่พบหน่วยบริการ');
     sh.getRange(u._row, 2).setValue(name);
+    if (p.code !== undefined) sh.getRange(u._row, 5).setValue(code ? "'" + code : '');
     readUsers_().filter(x => x.unitId === u.id).forEach(x => { x.unit = name; writeUser_(x, false); });
     return { ok: true, unit: { id: u.id, name: name } };
   }
   const id = newId_();
-  sh.appendRow([id, name, new Date(), admin.email]);
-  return { ok: true, unit: { id: id, name: name } };
+  sh.appendRow([id, name, new Date(), admin.email, code ? "'" + code : '']);
+  return { ok: true, unit: { id: id, name: name, code: code } };
 }
 function unitDelete_(id) {
   const u = readUnits_().filter(x => x.id === id)[0];
@@ -444,6 +478,23 @@ function unitDelete_(id) {
 }
 function unitName_(id) { const u = readUnits_().filter(x => x.id === id)[0]; return u ? u.name : ''; }
 
+/** เพิ่ม/ปรับหน่วยบริการตาม DEFAULT_UNITS (จับคู่ด้วยรหัส หรือชื่อตำบลสำหรับหน่วยเดิมที่ยังไม่มีรหัส) */
+function importUnits_() {
+  const key = s => String(s || '').replace(/โรงพยาบาลส่งเสริมสุขภาพตำบล|รพ\.?\s*สต\.?|รพสต\.?|บ้าน|\s/g, '');
+  const sh = unitsSheet_();
+  DEFAULT_UNITS.forEach(([code, name]) => {
+    const units = readUnits_();
+    let u = units.filter(x => x.code === code)[0];
+    if (!u) u = units.filter(x => !x.code && key(x.name) && (key(x.name) === key(name)))[0];
+    if (u) {
+      if (u.name !== name || u.code !== code) {
+        sh.getRange(u._row, 2).setValue(name); sh.getRange(u._row, 5).setValue("'" + code);
+        readUsers_().filter(x => x.unitId === u.id).forEach(x => { x.unit = name; writeUser_(x, false); });
+        Logger.log('ปรับหน่วย ' + u.name + ' → ' + code + ' ' + name);
+      }
+    } else { sh.appendRow([newId_(), name, new Date(), 'system', "'" + code]); }
+  });
+}
 /** ย้ายข้อมูลเดิม: จับคู่หน่วยบริการของผู้ใช้จากชื่อ และกำหนดหน่วยให้ร้าน/ผลตรวจเดิมตามผู้บันทึก */
 function migrate_() {
   const units = readUnits_();
@@ -486,7 +537,7 @@ function list_(user) {
   const insps = readAll_(SHEET_INSP).filter(i => ids[i.storeId]);
   const pending = isSuper_(user) ? readUsers_().filter(u => u.status === 'pending' || u.transferTo).length :
     user.role === 'unitadmin' ? readUsers_().filter(u => (u.status === 'pending' && u.unitId === user.unitId) || (u.transferTo && u.transferTo === user.unitId)).length : 0;
-  return { ok: true, user: publicUser_(user), stores: stores, inspections: insps, pending: pending, units: readUnits_().map(u => ({ id: u.id, name: u.name })) };
+  return { ok: true, user: publicUser_(user), stores: stores, inspections: insps, pending: pending, units: readUnits_().map(u => ({ id: u.id, name: u.name, code: u.code })) };
 }
 function findRec_(name, id) { return readAll_(name).filter(r => r.id === id)[0] || null; }
 function saveStore_(user, rec, flat) {
