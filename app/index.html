@@ -318,7 +318,7 @@ function evaluate(f){
 }
 
 /* ====================== flatten for Sheets / CSV ====================== */
-function flatStore(s){return {'หน่วยบริการ':unitName(s.unitId),'หมู่บ้าน':s.village||'','หมู่ที่':s.moo||'','ชื่อร้าน':s.name||'','ประเภทร้านค้า':s.type||'','ลักษณะสถานประกอบการ':s.kind||'',
+function flatStore(s){return {'หน่วยบริการ':unitName(s.unitId),'สถานะร้าน':s.closed?'ปิดให้บริการแล้ว'+(s.closedAt?' ('+s.closedAt+')':''):'เปิดให้บริการ','หมู่บ้าน':s.village||'','หมู่ที่':s.moo||'','ชื่อร้าน':s.name||'','ประเภทร้านค้า':s.type||'','ลักษณะสถานประกอบการ':s.kind||'',
   'ชื่อเจ้าของร้าน':s.owner||'','ผู้ดูแลร้าน':s.caretaker||'','โทรศัพท์':s.phone||'','ที่อยู่':s.address||'','เลขทะเบียน/ใบอนุญาต':s.license||'',
   'ละติจูด':s.lat??'','ลองจิจูด':s.lng??'','Google Maps':(s.lat!=null&&s.lat!=='')?`https://www.google.com/maps?q=${s.lat},${s.lng}`:'',
   'ภาพหน้าร้าน':(s.photo&&!String(s.photo).startsWith('data:'))?s.photo:'','หมายเหตุ':s.note||'','บันทึกโดย':s.by||''}}
@@ -506,7 +506,7 @@ async function showMap(){
   else{MAIN&&MAIN.resize();refreshMarkers(false)}
 }
 function refreshMarkers(fit){if(!MAIN)return;
-  const list=S.stores.filter(hasLL).map(s=>{const lv=levelOf(s.id);const l=latestOf(s.id);return {lat:+s.lat,lng:+s.lng,color:LEVELS[lv].c,title:s.name,
+  const list=S.stores.filter(x=>hasLL(x)&&!x.closed).map(s=>{const lv=levelOf(s.id);const l=latestOf(s.id);return {lat:+s.lat,lng:+s.lng,color:LEVELS[lv].c,title:s.name,
     html:`<div class="pop"><b>${esc(s.name)}</b><br><span class="muted">${esc(s.village||'')} · ${esc(s.type||'')}</span><br>${badge(lv)} ${l?`<span class="small muted">${thDate(l.date)}</span>`:''}<br>
       <div style="display:flex;gap:6px;margin-top:8px"><a class="btn sm pri" href="#store/${s.id}">รายละเอียด</a><a class="btn sm" target="_blank" rel="noopener" href="${gmapsNav(s.lat,s.lng)}">นำทาง</a></div></div>`}});
   MAIN.setMarkers(list);if(fit&&list.length)MAIN.fit(list.map(x=>[x.lat,x.lng]))}
@@ -545,33 +545,34 @@ $('#btnFit').onclick=()=>refreshMarkers(true);
 $('#btnMe').onclick=async()=>{try{toast('กำลังหาตำแหน่ง…');const p=await getGPS();MAIN&&(MAIN.me(p.lat,p.lng),MAIN.view(p.lat,p.lng,16))}catch(e){toast(e.message)}};
 
 /* ====================== view: list ====================== */
-const LF={q:'',vil:'',lv:'',type:'',unit:''};
+const LF={q:'',vil:'',lv:'',type:'',unit:'',st:'open'};
 function viewList(){
-  setHeader('🏪 ร้านค้า',`${S.stores.length} ร้าน`);
+  setHeader('🏪 ร้านค้า',`${S.stores.filter(x=>!x.closed).length} ร้านที่เปิดอยู่`);
   const vs=villages();
   $('#view').innerHTML=`
     <div class="search">
       <input class="i" id="q" placeholder="🔍 ค้นหาชื่อร้าน / เจ้าของ" value="${esc(LF.q)}">
       <select class="i" id="fv"><option value="">ทุกหมู่บ้าน</option>${vs.map(v=>`<option ${v===LF.vil?'selected':''}>${esc(v)}</option>`).join('')}</select>
       <select class="i" id="fl"><option value="">ทุกผลตรวจ</option>${Object.entries(LEVELS).map(([k,v])=>`<option value="${k}" ${k===LF.lv?'selected':''}>${v.t}</option>`).join('')}</select>
+      <select class="i" id="fs"><option value="open" ${LF.st==='open'?'selected':''}>เปิดให้บริการ</option><option value="closed" ${LF.st==='closed'?'selected':''}>ปิดให้บริการแล้ว</option><option value="" ${!LF.st?'selected':''}>ทุกสถานะร้าน</option></select>
       <select class="i" id="ft"><option value="">ทุกประเภท</option>${STORE_TYPES.map(v=>`<option ${v===LF.type?'selected':''}>${esc(v)}</option>`).join('')}</select>
       ${isSuper()?`<select class="i" id="fu"><option value="">ทุกหน่วยบริการ</option>${unitOpts(LF.unit)}<option value="-" ${LF.unit==='-'?'selected':''}>(ยังไม่ระบุหน่วย)</option></select>`:''}
     </div><div id="items"></div>`;
   const draw=()=>{const q=LF.q.toLowerCase();
-    const arr=S.stores.filter(s=>(!LF.unit||(LF.unit==='-'?!s.unitId:s.unitId===LF.unit))&&(!LF.vil||s.village===LF.vil)&&(!LF.type||s.type===LF.type)&&(!LF.lv||levelOf(s.id)===LF.lv)&&
+    const arr=S.stores.filter(s=>(!LF.st||(LF.st==='closed'?!!s.closed:!s.closed))&&(!LF.unit||(LF.unit==='-'?!s.unitId:s.unitId===LF.unit))&&(!LF.vil||s.village===LF.vil)&&(!LF.type||s.type===LF.type)&&(!LF.lv||levelOf(s.id)===LF.lv)&&
       (!q||[s.name,s.owner,s.caretaker,s.village,s.phone].join(' ').toLowerCase().includes(q)))
       .sort((a,b)=>(a.village||'').localeCompare(b.village||'','th')||(a.name||'').localeCompare(b.name||'','th'));
     $('#items').innerHTML=arr.length?arr.map(s=>{const l=latestOf(s.id);const lv=levelOf(s.id);return `
-      <div class="card shop" data-go="#store/${s.id}">
+      <div class="card shop" data-go="#store/${s.id}" ${s.closed?'style="opacity:.6"':''}>
         ${s.photo?`<img class="thumb" loading="lazy" referrerpolicy="no-referrer" src="${imgSrc(s.photo)}" alt="">`:'<div class="thumb">🏪</div>'}
         <div class="grow"><div class="nm">${esc(s.name)}</div>
           <div class="small muted">${esc(s.village||'-')}${s.moo?' ม.'+esc(s.moo):''} · ${esc(s.type||'-')}${isSuper()?' · <b>'+esc(unitName(s.unitId)||'ไม่ระบุหน่วย')+'</b>':''}</div>
-          <div class="row" style="margin-top:4px">${badge(lv)}${l?`<span class="small muted">${thDate(l.date)}${l.result&&l.result.pct!=null?' · '+l.result.pct+'%':''}</span>`:''}${hasLL(s)?'':'<span class="small" style="color:var(--yellow)">ไม่มีพิกัด</span>'}</div>
+          <div class="row" style="margin-top:4px">${s.closed?'<span class="badge b-none">🚫 ปิดให้บริการแล้ว</span>':''}${badge(lv)}${l?`<span class="small muted">${thDate(l.date)}${l.result&&l.result.pct!=null?' · '+l.result.pct+'%':''}</span>`:''}${hasLL(s)?'':'<span class="small" style="color:var(--yellow)">ไม่มีพิกัด</span>'}</div>
         </div></div>`}).join(''):`<div class="empty">${S.stores.length?'ไม่พบร้านที่ตรงกับเงื่อนไข':'ยังไม่มีข้อมูลร้านค้า<br>กด “＋ เพิ่มร้านค้า” เพื่อเริ่มต้น'}</div>`};
   draw();
   const v=$('#view');
   v.oninput=e=>{if(e.target.id==='q'){LF.q=e.target.value;draw()}};
-  v.onchange=e=>{const m={fv:'vil',fl:'lv',ft:'type',fu:'unit'}[e.target.id];if(m){LF[m]=e.target.value;draw()}};
+  v.onchange=e=>{const m={fv:'vil',fl:'lv',ft:'type',fu:'unit',fs:'st'}[e.target.id];if(m){LF[m]=e.target.value;draw()}};
   v.onclick=e=>{const g=e.target.closest('[data-go]');if(g)location.hash=g.dataset.go};
 }
 
@@ -581,6 +582,7 @@ function viewStore(id){
   setHeader(s.name,s.village||'',true);
   const ins=inspsOf(id);const lv=levelOf(id);const l=ins[0];
   $('#view').innerHTML=`
+ ${s.closed?`<div class="note" style="background:#e5e7eb;border-left:4px solid #6b7280"><b>🚫 ร้านค้าปิดให้บริการแล้ว</b>${s.closedAt?' ตั้งแต่ '+thDate(s.closedAt):''}${s.closedReason?'<br>สาเหตุ: '+esc(s.closedReason):''}${s.closedBy?'<br><span class="small muted">บันทึกโดย '+esc(s.closedBy)+'</span>':''}<br><span class="small">ร้านนี้จะไม่แสดงบนแผนที่และไม่นับในรายงาน (ประวัติการตรวจยังเก็บไว้)</span></div>`:''}
     <div class="card">
       ${s.photo?`<img class="hero" referrerpolicy="no-referrer" src="${imgSrc(s.photo)}" alt="ภาพหน้าร้าน">`:''}
       <div class="row" style="justify-content:space-between"><h2 style="margin:0">${esc(s.name)}</h2>${badge(lv)}</div>
@@ -598,9 +600,10 @@ function viewStore(id){
       </dl>
     </div>
     <div class="btns" style="margin-bottom:12px">
-      ${canEdit()?`<a class="btn pri" href="#inspect/${s.id}">📝 ตรวจประเมิน</a>`:''}
+      ${canEdit()&&!s.closed?`<a class="btn pri" href="#inspect/${s.id}">📝 ตรวจประเมิน</a>`:''}
       ${hasLL(s)?`<a class="btn" target="_blank" rel="noopener" href="${gmapsNav(s.lat,s.lng)}">🧭 นำทาง Google Maps</a>`:''}
       ${canEdit()?`<a class="btn" href="#edit/${s.id}">✏️ แก้ไขข้อมูลร้าน</a>`:''}
+      ${canEdit()?(s.closed?`<button class="btn" data-act="reopen">↩ เปิดให้บริการอีกครั้ง</button>`:`<button class="btn danger" data-act="close">🚫 ร้านค้าปิดให้บริการแล้ว</button>`):''}
     </div>
     ${l&&l.result?`<div class="card"><h3>ผลการตรวจล่าสุด (${thDate(l.date)})</h3>
       <div class="res b-${l.result.level}"><b>${l.result.label}${l.result.pct!=null?' · '+l.result.pct+'%':''}</b>ผ่าน ${l.result.pass} ข้อ · ไม่ผ่าน ${l.result.fail} ข้อ</div>
@@ -614,7 +617,17 @@ function viewStore(id){
         :'<div class="muted">ยังไม่เคยตรวจ</div>'}
     </div>
     <div class="small muted">แก้ไขล่าสุด ${thDateTime(s.updated)}${s.by?' โดย '+esc(s.by):''}</div>`;
-  $('#view').onclick=e=>{const g=e.target.closest('[data-go]');if(g)location.hash=g.dataset.go};
+  $('#view').onclick=async e=>{const g=e.target.closest('[data-go]');if(g){location.hash=g.dataset.go;return}
+    const b=e.target.closest('[data-act]');if(!b)return;
+    if(b.dataset.act==='close'){
+      const reason=prompt(`ยืนยันว่า "${s.name}" ปิดให้บริการแล้ว?\n\nระบุสาเหตุ (ถ้ามี) เช่น เลิกกิจการ, ย้ายออกนอกพื้นที่`,'');
+      if(reason===null)return;
+      const r=JSON.parse(JSON.stringify(s));r.closed=true;r.closedAt=today();r.closedReason=reason.trim();r.closedBy=me().name||me().email;
+      await saveStore(r);refreshMarkers(false);toast('บันทึกร้านปิดให้บริการแล้ว');viewStore(id)}
+    else if(b.dataset.act==='reopen'){
+      if(!confirm(`เปิดให้บริการ "${s.name}" อีกครั้ง?`))return;
+      const r=JSON.parse(JSON.stringify(s));r.closed=false;delete r.closedAt;delete r.closedReason;delete r.closedBy;
+      await saveStore(r);refreshMarkers(false);toast('เปิดให้บริการอีกครั้งแล้ว ✓');viewStore(id)}};
 }
 
 /* ====================== view: edit store ====================== */
@@ -873,8 +886,8 @@ function viewDash(){
   if(!isSuper())RF.unit=me().unitId||'';
   const uName=RF.unit?unitName(RF.unit):(isSuper()?'ทุกหน่วยบริการ':myUnitName());
   setHeader('📊 รายงาน',uName);
-  const stores=S.stores.filter(s=>!RF.unit||s.unitId===RF.unit);
-  const sIds=new Set(stores.map(s=>s.id));
+  const allStores=S.stores.filter(s=>!RF.unit||s.unitId===RF.unit);const stores=allStores.filter(s=>!s.closed);const nClosed=allStores.length-stores.length;
+  const sIds=new Set(allStores.map(s=>s.id));
   const insps=S.inspections.filter(i=>sIds.has(i.storeId)&&(i.date||'')>=RF.from&&(i.date||'')<=RF.to)
     .sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.created||0)-(a.created||0));
   const lastIn={};insps.forEach(i=>{if(!lastIn[i.storeId])lastIn[i.storeId]=i});
@@ -906,7 +919,7 @@ function viewDash(){
     <div class="card" style="text-align:center"><h2 style="margin:0">รายงานการตรวจร้านค้าและผลิตภัณฑ์สุขภาพ</h2>
       <div><b>${esc(RF.unit?((unitObj(RF.unit)||{}).code?unitObj(RF.unit).code+' ':'')+unitFull(RF.unit):uName||'-')}</b></div><div class="small muted">ระหว่างวันที่ ${thDate(RF.from)} – ${thDate(RF.to)} · พิมพ์เมื่อ ${thDateTime(Date.now())}</div></div>
     <div class="stats">
-      <div class="stat"><b>${stores.length}</b><span>ร้านค้าทั้งหมด</span></div>
+      <div class="stat"><b>${stores.length}</b><span>ร้านที่เปิดให้บริการ${nClosed?` <br>(ปิดแล้ว ${nClosed} ร้าน)`:''}</span></div>
       <div class="stat"><b>${done}</b><span>ร้านที่ตรวจแล้ว (${cov}%)</span></div>
       <div class="stat"><b>${insps.length}</b><span>ครั้งที่ตรวจ</span></div>
       <div class="stat"><b style="color:var(--green)">${cnt.green}</b><span>ผ่าน</span></div>
