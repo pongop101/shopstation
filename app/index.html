@@ -421,8 +421,33 @@ function compressImage(file,max=1280,q=0.72){return new Promise((res,rej)=>{cons
   img.onload=()=>{let w=img.naturalWidth,h=img.naturalHeight;const s=Math.min(1,max/Math.max(w,h));w=Math.round(w*s);h=Math.round(h*s);
     const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);URL.revokeObjectURL(url);res(c.toDataURL('image/jpeg',q))};
   img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('อ่านรูปไม่ได้'))};img.src=url})}
-function pickImage(){return new Promise(res=>{const inp=document.createElement('input');inp.type='file';inp.accept='image/*';
-  inp.onchange=async()=>{const f=inp.files[0];if(!f)return res(null);try{res(await compressImage(f))}catch(e){toast(e.message);res(null)}};inp.click()})}
+const isMobile=()=>/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent));
+/* mode: 'camera' = เปิดกล้องถ่ายทันที, 'gallery' = เลือกจากคลังภาพ/ไฟล์ */
+function pickImage(mode){
+  if(mode==='camera'&&!isMobile()&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)return openCamera();
+  return new Promise(res=>{const inp=document.createElement('input');inp.type='file';inp.accept='image/*';
+    if(mode==='camera')inp.setAttribute('capture','environment');
+    inp.style.display='none';document.body.appendChild(inp);
+    inp.onchange=async()=>{const f=inp.files[0];inp.remove();if(!f)return res(null);try{res(await compressImage(f))}catch(e){toast(e.message);res(null)}};inp.click()})}
+/* กล้องในแอป (คอมพิวเตอร์/แท็บเล็ตที่มีเว็บแคม) */
+function openCamera(){return new Promise(async res=>{
+  const md=document.createElement('div');md.className='modal';
+  md.innerHTML=`<div class="box" style="background:#000"><div class="mh" style="background:#fff"><b class="grow">📷 ถ่ายภาพ</b><button class="btn sm" data-c="flip">🔄 สลับกล้อง</button><button class="btn sm" data-c="x">ยกเลิก</button></div>
+    <div class="mb" style="display:flex;align-items:center;justify-content:center;overflow:hidden"><video playsinline autoplay muted style="max-width:100%;max-height:100%"></video></div>
+    <div style="padding:12px;text-align:center;background:#000"><button data-c="shot" aria-label="ถ่ายภาพ" style="width:72px;height:72px;border-radius:50%;border:5px solid #fff;background:#ef4444;cursor:pointer"></button></div></div>`;
+  document.body.appendChild(md);const v=$('video',md);let stream=null,facing='environment';
+  const stop=()=>{if(stream)stream.getTracks().forEach(t=>t.stop());stream=null};
+  const start=async()=>{stop();try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1920},height:{ideal:1080}},audio:false});v.srcObject=stream}
+    catch(e){toast(e.name==='NotAllowedError'?'ไม่ได้รับอนุญาตให้ใช้กล้อง (เปิดสิทธิ์กล้องในการตั้งค่าเบราว์เซอร์)':'เปิดกล้องไม่ได้ — ใช้ “คลังภาพ” แทน',4500);close(null)}};
+  const close=val=>{stop();md.remove();res(val)};
+  md.onclick=e=>{const b=e.target.closest('[data-c]');if(!b)return;
+    if(b.dataset.c==='x')close(null);
+    else if(b.dataset.c==='flip'){facing=facing==='environment'?'user':'environment';start()}
+    else if(b.dataset.c==='shot'){if(!v.videoWidth){toast('กล้องยังไม่พร้อม');return}
+      let w=v.videoWidth,h=v.videoHeight;const sc=Math.min(1,1280/Math.max(w,h));w=Math.round(w*sc);h=Math.round(h*sc);
+      const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(v,0,0,w,h);close(c.toDataURL('image/jpeg',0.72))}};
+  start()})}
+const photoBtns=(label)=>`<div class="addph" data-act="cam"><b>📷</b>${label||'ถ่ายภาพ'}</div><div class="addph" data-act="gal"><b>🖼️</b>คลังภาพ</div>`;
 
 /* ====================== geo ====================== */
 function getGPS(){return new Promise((res,rej)=>{if(!navigator.geolocation)return rej(new Error('อุปกรณ์ไม่รองรับ GPS'));
@@ -639,13 +664,13 @@ function viewEdit(id){
     ${isNew||!(isSuper()||(isAdmin()&&s.unitId===me().unitId))?'':'<button class="btn danger block" data-act="del" style="margin-top:12px">🗑 ลบร้านนี้และผลตรวจทั้งหมด (ผู้ดูแล)</button>'}`;
   const v=$('#view');
   const drawPh=()=>{$('#ph').innerHTML=(s.photo?`<div class="ph"><img referrerpolicy="no-referrer" src="${imgSrc(s.photo)}"><button class="x" data-act="rmph">×</button></div>`:'')+
-    `<div class="addph" data-act="addph"><b>📷</b>${s.photo?'เปลี่ยนรูป':'ถ่าย/เลือกรูป'}</div>`};drawPh();
+    photoBtns(s.photo?'ถ่ายใหม่':'ถ่ายภาพ')};drawPh();
   const setLL=(lat,lng)=>{$('[name=lat]',v).value=lat;$('[name=lng]',v).value=lng};
   v.oninput=e=>{if(e.target.id==='gl'){const p=parseLatLng(e.target.value);const m=$('#glmsg');
     if(p){setLL(p.lat,p.lng);m.innerHTML='<span class="ok">✓ ได้พิกัดแล้ว</span>'}
     else if(e.target.value.trim()){m.innerHTML=/goo\.gl|maps\.app/.test(e.target.value)?'<span class="ng">ลิงก์แบบย่อ (maps.app.goo.gl) อ่านพิกัดไม่ได้ — เปิดลิงก์ใน Google Maps แล้วคัดลอกตัวเลขพิกัดแทน</span>':'<span class="ng">ไม่พบพิกัดในข้อความนี้</span>'}}};
   v.onclick=async e=>{const b=e.target.closest('[data-act]');if(!b)return;const act=b.dataset.act;
-    if(act==='addph'){const d=await pickImage();if(d){s.photo=d;drawPh()}}
+    if(act==='cam'||act==='gal'){const d=await pickImage(act==='cam'?'camera':'gallery');if(d){s.photo=d;drawPh();toast('เพิ่มภาพหน้าร้านแล้ว ✓')}}
     else if(act==='rmph'){s.photo='';drawPh()}
     else if(act==='gps'){b.disabled=true;b.textContent='⏳ กำลังหาตำแหน่ง…';try{const p=await getGPS();setLL(p.lat,p.lng);toast(`ได้ตำแหน่งแล้ว (คลาดเคลื่อน ±${p.acc} ม.)`)}catch(err){toast(err.message,4000)}b.disabled=false;b.textContent='📍 ใช้ตำแหน่งปัจจุบัน'}
     else if(act==='pick'){const cur=parseLatLng($('[name=lat]',v).value+','+$('[name=lng]',v).value);const p=await pickOnMap(cur);if(p)setLL(p.lat,p.lng)}
@@ -747,7 +772,7 @@ function viewInspect(storeId,inspId){
       ${r.crit.length?`<p class="ng small"><b>⚠ พบข้อบกพร่องสำคัญ (ถือว่าไม่ผ่าน):</b> ${esc(r.crit.join(', '))}</p>`:''}
       ${r.warn.length?`<p class="small" style="color:var(--yellow)"><b>ข้อสังเกต:</b> ${esc(r.warn.join(', '))}</p>`:''}
       <p class="small muted" style="margin:6px 0 0">เกณฑ์: ≥${PASS_PCT}% ผ่าน · ${FAIR_PCT}–${PASS_PCT-1}% ต้องปรับปรุง · ต่ำกว่า ${FAIR_PCT}% หรือพบข้อสำคัญ = ไม่ผ่าน</p>`};
-  const drawPh=()=>{$('#iph').innerHTML=F.photos.map((p,k)=>`<div class="ph"><img referrerpolicy="no-referrer" src="${imgSrc(p)}"><button class="x" data-rm="${k}">×</button></div>`).join('')+(F.photos.length<6?'<div class="addph" data-act="addph"><b>📷</b>เพิ่มรูป</div>':'')};
+  const drawPh=()=>{$('#iph').innerHTML=F.photos.map((p,k)=>`<div class="ph"><img referrerpolicy="no-referrer" src="${imgSrc(p)}"><button class="x" data-rm="${k}">×</button></div>`).join('')+(F.photos.length<6?photoBtns():'')};
   upd();drawPh();
   v.onclick=async e=>{
     const tb=e.target.closest('.tri button');
@@ -760,7 +785,7 @@ function viewInspect(storeId,inspId){
       $$(`[data-sec="${sec.id}"] .tri[data-item] button`).forEach(x=>x.classList.toggle('on',x.dataset.v===all.dataset.val));upd();return}
     const rm=e.target.closest('[data-rm]');if(rm){F.photos.splice(+rm.dataset.rm,1);drawPh();return}
     const b=e.target.closest('[data-act]');if(!b)return;
-    if(b.dataset.act==='addph'){const d=await pickImage();if(d){F.photos.push(d);drawPh()}}
+    if(b.dataset.act==='cam'||b.dataset.act==='gal'){const d=await pickImage(b.dataset.act==='cam'?'camera':'gallery');if(d){F.photos.push(d);drawPh()}}
     else if(b.dataset.act==='autorec'){const r=evaluate(F);const lines=[];
       r.fails.forEach(fid=>{const it=ALL_ITEMS.find(x=>x.id===fid);lines.push('• '+recFor(it))});
       TESTS.forEach(t=>{if((F.tests[t.id]||{}).r==='pos')lines.push(`• พบ${t.name}ในตัวอย่าง${F.tests[t.id].sample?' '+F.tests[t.id].sample:''} — ให้งดจำหน่ายทันที และแจ้งแหล่งที่ซื้อ`)});
