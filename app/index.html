@@ -181,7 +181,7 @@ body.authing main{padding:0;max-width:none}
 <nav class="bottom">
   <button data-v="map"><b>🗺️</b>แผนที่</button>
   <button data-v="list"><b>🏪</b>ร้านค้า</button>
-  <button data-v="dash"><b>📊</b>ภาพรวม</button>
+  <button data-v="dash"><b>📊</b>รายงาน</button>
   <button data-v="settings"><b>⚙️</b>ตั้งค่า</button>
 </nav>
 
@@ -264,12 +264,15 @@ const idb={db:null,
 
 /* ====================== state ====================== */
 const S={stores:[],inspections:[],queueN:0,settings:{},lastSync:0,route:{},auth:null,server:null};
-const ROLE_T={admin:'ผู้ดูแลระบบ',staff:'เจ้าหน้าที่',viewer:'ดูอย่างเดียว'};
+const ROLE_T={superadmin:'ผู้ดูแลระบบสูงสุด',unitadmin:'ผู้ดูแลหน่วยบริการ',staff:'เจ้าหน้าที่',viewer:'ดูอย่างเดียว'};
 const STATUS_T={pending:'รออนุมัติ',approved:'ใช้งานได้',disabled:'ระงับ'};
 const me=()=>S.auth&&S.auth.user||{};
 const authed=()=>!!(S.auth&&S.auth.token&&me().status==='approved');
-const canEdit=()=>authed()&&['admin','staff'].includes(me().role);
-const isAdmin=()=>authed()&&me().role==='admin';
+const canEdit=()=>authed()&&['superadmin','unitadmin','staff'].includes(me().role);
+const isAdmin=()=>authed()&&['superadmin','unitadmin'].includes(me().role);
+const isSuper=()=>authed()&&me().role==='superadmin';
+const unitName=id=>((S.units||[]).find(u=>u.id===id)||{}).name||'';
+const myUnitName=()=>unitName(me().unitId)||me().unit||'';
 const DEF_SET={inspector:'',unit:'',serverUrl:CONFIG.SERVER_URL,gmapKey:'',villages:'',center:[15.7926,104.1453],zoom:12};
 async function saveSettings(){await idb.put('kv',S.settings,'settings')}
 function storeById(id){return S.stores.find(s=>s.id===id)}
@@ -296,7 +299,7 @@ function evaluate(f){
 }
 
 /* ====================== flatten for Sheets / CSV ====================== */
-function flatStore(s){return {'หมู่บ้าน':s.village||'','หมู่ที่':s.moo||'','ชื่อร้าน':s.name||'','ประเภทร้านค้า':s.type||'','ลักษณะสถานประกอบการ':s.kind||'',
+function flatStore(s){return {'หน่วยบริการ':unitName(s.unitId),'หมู่บ้าน':s.village||'','หมู่ที่':s.moo||'','ชื่อร้าน':s.name||'','ประเภทร้านค้า':s.type||'','ลักษณะสถานประกอบการ':s.kind||'',
   'ชื่อเจ้าของร้าน':s.owner||'','ผู้ดูแลร้าน':s.caretaker||'','โทรศัพท์':s.phone||'','ที่อยู่':s.address||'','เลขทะเบียน/ใบอนุญาต':s.license||'',
   'ละติจูด':s.lat??'','ลองจิจูด':s.lng??'','Google Maps':(s.lat!=null&&s.lat!=='')?`https://www.google.com/maps?q=${s.lat},${s.lng}`:'',
   'ภาพหน้าร้าน':(s.photo&&!String(s.photo).startsWith('data:'))?s.photo:'','หมายเหตุ':s.note||'','บันทึกโดย':s.by||''}}
@@ -361,6 +364,7 @@ async function sync(manual){
   finally{syncing=false;await refreshQueueN()}
 }
 async function mergeServer(data){
+  if(data.units){S.units=data.units;await idb.put('kv',S.units,'units')}
   const pend=new Set((await idb.all('queue')).map(j=>j.recId));
   const merge=(local,server)=>{const sm=new Map((server||[]).map(r=>[r.id,r]));const lm=new Map(local.map(r=>[r.id,r]));const out=[];
     sm.forEach((r,id)=>out.push(pend.has(id)&&lm.has(id)?lm.get(id):r));
@@ -477,7 +481,7 @@ function route(){
   const view=$('#view');view.onclick=view.oninput=view.onchange=null;
   if(!isMap)window.scrollTo(0,0);
   switch(v){
-    case 'map':setHeader('🏪 ShopStation',S.settings.unit||'');showMap();break;
+    case 'map':setHeader('🏪 ShopStation',isSuper()&&!me().unitId?'ทุกหน่วยบริการ':myUnitName());showMap();break;
     case 'list':viewList();break;
     case 'store':viewStore(a);break;
     case 'edit':if(canEdit())viewEdit(a);else location.hash='#store/'+a;break;
@@ -497,7 +501,7 @@ $('#btnFit').onclick=()=>refreshMarkers(true);
 $('#btnMe').onclick=async()=>{try{toast('กำลังหาตำแหน่ง…');const p=await getGPS();MAIN&&(MAIN.me(p.lat,p.lng),MAIN.view(p.lat,p.lng,16))}catch(e){toast(e.message)}};
 
 /* ====================== view: list ====================== */
-const LF={q:'',vil:'',lv:'',type:''};
+const LF={q:'',vil:'',lv:'',type:'',unit:''};
 function viewList(){
   setHeader('🏪 ร้านค้า',`${S.stores.length} ร้าน`);
   const vs=villages();
@@ -507,22 +511,23 @@ function viewList(){
       <select class="i" id="fv"><option value="">ทุกหมู่บ้าน</option>${vs.map(v=>`<option ${v===LF.vil?'selected':''}>${esc(v)}</option>`).join('')}</select>
       <select class="i" id="fl"><option value="">ทุกผลตรวจ</option>${Object.entries(LEVELS).map(([k,v])=>`<option value="${k}" ${k===LF.lv?'selected':''}>${v.t}</option>`).join('')}</select>
       <select class="i" id="ft"><option value="">ทุกประเภท</option>${STORE_TYPES.map(v=>`<option ${v===LF.type?'selected':''}>${esc(v)}</option>`).join('')}</select>
+      ${isSuper()?`<select class="i" id="fu"><option value="">ทุกหน่วยบริการ</option>${(S.units||[]).map(u=>`<option value="${u.id}" ${u.id===LF.unit?'selected':''}>${esc(u.name)}</option>`).join('')}<option value="-" ${LF.unit==='-'?'selected':''}>(ยังไม่ระบุหน่วย)</option></select>`:''}
     </div><div id="items"></div>`;
   const draw=()=>{const q=LF.q.toLowerCase();
-    const arr=S.stores.filter(s=>(!LF.vil||s.village===LF.vil)&&(!LF.type||s.type===LF.type)&&(!LF.lv||levelOf(s.id)===LF.lv)&&
+    const arr=S.stores.filter(s=>(!LF.unit||(LF.unit==='-'?!s.unitId:s.unitId===LF.unit))&&(!LF.vil||s.village===LF.vil)&&(!LF.type||s.type===LF.type)&&(!LF.lv||levelOf(s.id)===LF.lv)&&
       (!q||[s.name,s.owner,s.caretaker,s.village,s.phone].join(' ').toLowerCase().includes(q)))
       .sort((a,b)=>(a.village||'').localeCompare(b.village||'','th')||(a.name||'').localeCompare(b.name||'','th'));
     $('#items').innerHTML=arr.length?arr.map(s=>{const l=latestOf(s.id);const lv=levelOf(s.id);return `
       <div class="card shop" data-go="#store/${s.id}">
         ${s.photo?`<img class="thumb" loading="lazy" referrerpolicy="no-referrer" src="${imgSrc(s.photo)}" alt="">`:'<div class="thumb">🏪</div>'}
         <div class="grow"><div class="nm">${esc(s.name)}</div>
-          <div class="small muted">${esc(s.village||'-')}${s.moo?' ม.'+esc(s.moo):''} · ${esc(s.type||'-')}</div>
+          <div class="small muted">${esc(s.village||'-')}${s.moo?' ม.'+esc(s.moo):''} · ${esc(s.type||'-')}${isSuper()?' · <b>'+esc(unitName(s.unitId)||'ไม่ระบุหน่วย')+'</b>':''}</div>
           <div class="row" style="margin-top:4px">${badge(lv)}${l?`<span class="small muted">${thDate(l.date)}${l.result&&l.result.pct!=null?' · '+l.result.pct+'%':''}</span>`:''}${hasLL(s)?'':'<span class="small" style="color:var(--yellow)">ไม่มีพิกัด</span>'}</div>
         </div></div>`}).join(''):`<div class="empty">${S.stores.length?'ไม่พบร้านที่ตรงกับเงื่อนไข':'ยังไม่มีข้อมูลร้านค้า<br>กด “＋ เพิ่มร้านค้า” เพื่อเริ่มต้น'}</div>`};
   draw();
   const v=$('#view');
   v.oninput=e=>{if(e.target.id==='q'){LF.q=e.target.value;draw()}};
-  v.onchange=e=>{const m={fv:'vil',fl:'lv',ft:'type'}[e.target.id];if(m){LF[m]=e.target.value;draw()}};
+  v.onchange=e=>{const m={fv:'vil',fl:'lv',ft:'type',fu:'unit'}[e.target.id];if(m){LF[m]=e.target.value;draw()}};
   v.onclick=e=>{const g=e.target.closest('[data-go]');if(g)location.hash=g.dataset.go};
 }
 
@@ -537,6 +542,7 @@ function viewStore(id){
       <div class="row" style="justify-content:space-between"><h2 style="margin:0">${esc(s.name)}</h2>${badge(lv)}</div>
       <div class="muted small" style="margin-bottom:10px">${esc(s.type||'')} ${s.kind?'· '+esc(s.kind):''}</div>
       <dl class="kv">
+        <dt>หน่วยบริการ</dt><dd>${esc(unitName(s.unitId)||'-')}</dd>
         <dt>หมู่บ้าน</dt><dd>${esc(s.village||'-')}${s.moo?' หมู่ที่ '+esc(s.moo):''}</dd>
         <dt>เจ้าของร้าน</dt><dd>${esc(s.owner||'-')}</dd>
         <dt>ผู้ดูแลร้าน</dt><dd>${esc(s.caretaker||'-')}</dd>
@@ -577,6 +583,8 @@ function viewEdit(id){
   const opt=(arr,v)=>{const a=arr.includes(v)||!v?arr:[...arr,v];return a.map(x=>`<option ${x===v?'selected':''}>${esc(x)}</option>`).join('')};
   $('#view').innerHTML=`
     <div class="card"><h3>1. ข้อมูลพื้นฐานของร้านค้า (Store Profile)</h3>
+      ${isSuper()?`<label class="f"><span>หน่วยบริการ *</span><select class="i" name="unitId">${(S.units||[]).map(u=>`<option value="${u.id}" ${u.id===(s.unitId||me().unitId)?'selected':''}>${esc(u.name)}</option>`).join('')}</select></label>`:
+        `<div class="small muted" style="margin:-4px 0 10px">หน่วยบริการ: <b>${esc(unitName(s.unitId)||myUnitName()||'-')}</b></div>`}
       <div class="grid2">
         <label class="f"><span>หมู่บ้าน *</span><input class="i" name="village" list="vlist" value="${esc(s.village)}" placeholder="เช่น บ้านดอนกลอย"><datalist id="vlist">${vs.map(v=>`<option value="${esc(v)}">`).join('')}</datalist></label>
         <label class="f"><span>หมู่ที่</span><input class="i" name="moo" inputmode="numeric" value="${esc(s.moo||'')}"></label>
@@ -609,7 +617,7 @@ function viewEdit(id){
       <div class="small muted" id="glmsg" style="margin-top:4px">ใน Google Maps: กดค้างที่ตำแหน่งร้าน → คัดลอกตัวเลขพิกัดมาวาง</div>
     </div>
     <button class="btn pri block" data-act="save" style="padding:14px;font-size:17px">💾 บันทึกข้อมูลร้าน</button>
-    ${isNew||!isAdmin()?'':'<button class="btn danger block" data-act="del" style="margin-top:12px">🗑 ลบร้านนี้และผลตรวจทั้งหมด (ผู้ดูแล)</button>'}`;
+    ${isNew||!(isSuper()||(isAdmin()&&s.unitId===me().unitId))?'':'<button class="btn danger block" data-act="del" style="margin-top:12px">🗑 ลบร้านนี้และผลตรวจทั้งหมด (ผู้ดูแล)</button>'}`;
   const v=$('#view');
   const drawPh=()=>{$('#ph').innerHTML=(s.photo?`<div class="ph"><img referrerpolicy="no-referrer" src="${imgSrc(s.photo)}"><button class="x" data-act="rmph">×</button></div>`:'')+
     `<div class="addph" data-act="addph"><b>📷</b>${s.photo?'เปลี่ยนรูป':'ถ่าย/เลือกรูป'}</div>`};drawPh();
@@ -625,6 +633,8 @@ function viewEdit(id){
     else if(act==='save'){
       $$('[name]',v).forEach(i=>s[i.name]=i.value.trim());
       if(!s.village||!s.name){toast('กรุณากรอกหมู่บ้านและชื่อร้านค้า');return}
+      if(!isSuper())s.unitId=s.unitId||me().unitId;
+      if(!s.unitId&&!isSuper()){toast('บัญชีของคุณยังไม่ได้กำหนดหน่วยบริการ กรุณาติดต่อผู้ดูแล',4500);return}
       if(s.lat!==''||s.lng!==''){const p=parseLatLng(s.lat+','+s.lng);if(!p){toast('พิกัดไม่ถูกต้อง');return}s.lat=p.lat;s.lng=p.lng}
       s.by=me().name||me().email||'';
       await saveStore(s);toast('บันทึกแล้ว ✓');refreshMarkers(false);location.replace('#store/'+s.id)}
@@ -648,7 +658,7 @@ function viewInspect(storeId,inspId){
   const st=storeById(storeId);if(!st){$('#view').innerHTML='<div class="empty">ไม่พบร้านค้านี้</div>';return}
   const old=inspId?S.inspections.find(x=>x.id===inspId):null;
   const prev=inspsOf(storeId).filter(x=>!old||x.id!==old.id&&((x.date||'')<(old.date||'')||x.date===old.date&&x.created<old.created))[0]||null;
-  const F=old?JSON.parse(JSON.stringify(old)):{id:uid(),storeId,date:today(),inspector:me().name||S.settings.inspector||'',unit:me().unit||S.settings.unit||'',answers:{},tests:{},notes:{},sources:[],photos:[],prevImprove:prev?'':'first'};
+  const F=old?JSON.parse(JSON.stringify(old)):{id:uid(),storeId,date:today(),inspector:me().name||S.settings.inspector||'',unit:unitName(st.unitId)||myUnitName(),answers:{},tests:{},notes:{},sources:[],photos:[],prevImprove:prev?'':'first'};
   F.answers=F.answers||{};F.tests=F.tests||{};F.notes=F.notes||{};F.sources=F.sources||[];F.photos=F.photos||[];
   if(!prev&&!F.prevImprove)F.prevImprove='first';
   setHeader(old?'แก้ไขผลการตรวจ':'ตรวจประเมินร้านค้า',st.name,true);
@@ -778,7 +788,7 @@ function viewReport(id){
     </div>
     <div class="card rep">
       <h1>แบบบันทึกผลการตรวจร้านค้าและผลิตภัณฑ์สุขภาพ</h1>
-      <div class="sub">${esc(i.unit||S.settings.unit||'')}</div>
+      <div class="sub">${esc(unitName(st.unitId)||i.unit||'')}</div>
       <dl class="kv" style="margin-bottom:12px">
         <dt>ชื่อร้าน</dt><dd><b>${esc(st.name)}</b> (${esc(st.type||'-')})</dd>
         <dt>หมู่บ้าน</dt><dd>${esc(st.village||'-')}${st.moo?' หมู่ที่ '+esc(st.moo):''}</dd>
@@ -805,52 +815,90 @@ function viewReport(id){
       <div class="sign"><div>ลงชื่อ ...................................<br>(${esc(st.owner||'.................................')})<br>ผู้ประกอบการ</div>
         <div>ลงชื่อ ...................................<br>(${esc(i.inspector||'.................................')})<br>เจ้าหน้าที่ผู้ตรวจ</div></div>
     </div>
-    ${isAdmin()||(canEdit()&&(!i.createdBy||i.createdBy===me().email))?'<button class="btn danger block noprint" data-act="del">🗑 ลบผลการตรวจนี้</button>':''}`;
+    ${isSuper()||(isAdmin()&&i.unitId===me().unitId)||(canEdit()&&(!i.createdBy||i.createdBy===me().email))?'<button class="btn danger block noprint" data-act="del">🗑 ลบผลการตรวจนี้</button>':''}`;
   $('#view').onclick=async e=>{const b=e.target.closest('[data-act]');if(!b)return;
     if(b.dataset.act==='print')window.print();
     else if(b.dataset.act==='del'){if(!confirm('ลบผลการตรวจครั้งนี้?'))return;await deleteInsp(i.id);refreshMarkers(false);toast('ลบแล้ว');location.replace('#store/'+i.storeId)}};
 }
 
-/* ====================== view: dashboard ====================== */
+/* ====================== view: report (รายงานหน่วยบริการ) ====================== */
+function fyStart(){const d=new Date();const y=d.getMonth()>=9?d.getFullYear():d.getFullYear()-1;return `${y}-10-01`}
+const RF={unit:'',from:'',to:''};
 function viewDash(){
-  setHeader('📊 ภาพรวม',S.settings.unit||'');
-  const cnt={green:0,yellow:0,red:0,none:0};S.stores.forEach(s=>cnt[levelOf(s.id)]++);
-  const byV={};S.stores.forEach(s=>{const k=s.village||'(ไม่ระบุ)';byV[k]=byV[k]||{green:0,yellow:0,red:0,none:0,n:0};byV[k][levelOf(s.id)]++;byV[k].n++});
-  const latest=S.stores.map(s=>latestOf(s.id)).filter(Boolean);
+  if(!RF.from){RF.from=fyStart();RF.to=today()}
+  if(!isSuper())RF.unit=me().unitId||'';
+  const uName=RF.unit?unitName(RF.unit):(isSuper()?'ทุกหน่วยบริการ':myUnitName());
+  setHeader('📊 รายงาน',uName);
+  const stores=S.stores.filter(s=>!RF.unit||s.unitId===RF.unit);
+  const sIds=new Set(stores.map(s=>s.id));
+  const insps=S.inspections.filter(i=>sIds.has(i.storeId)&&(i.date||'')>=RF.from&&(i.date||'')<=RF.to)
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.created||0)-(a.created||0));
+  const lastIn={};insps.forEach(i=>{if(!lastIn[i.storeId])lastIn[i.storeId]=i});
+  const lvIn=id=>lastIn[id]&&lastIn[id].result?lastIn[id].result.level:'none';
+  const cnt={green:0,yellow:0,red:0,none:0};stores.forEach(s=>cnt[lvIn(s.id)]++);
+  const done=stores.length-cnt.none;const cov=stores.length?Math.round(done*100/stores.length):0;
+  const byV={};stores.forEach(s=>{const k=s.village||'(ไม่ระบุ)';byV[k]=byV[k]||{green:0,yellow:0,red:0,none:0,n:0};byV[k][lvIn(s.id)]++;byV[k].n++});
+  const byU={};if(isSuper()&&!RF.unit)stores.forEach(s=>{const k=unitName(s.unitId)||'(ไม่ระบุหน่วย)';byU[k]=byU[k]||{green:0,yellow:0,red:0,none:0,n:0};byU[k][lvIn(s.id)]++;byU[k].n++});
+  const latest=Object.values(lastIn);
   const fc={};latest.forEach(l=>{ALL_ITEMS.forEach(it=>{if(l.answers[it.id]==='n')fc[it.id]=(fc[it.id]||0)+1});TESTS.forEach(t=>{if((l.tests[t.id]||{}).r==='pos')fc['t_'+t.id]=(fc['t_'+t.id]||0)+1})});
   const top=Object.entries(fc).sort((a,b)=>b[1]-a[1]).slice(0,10);const maxF=top.length?top[0][1]:1;
+  const tk={};TESTS.forEach(t=>tk[t.id]={n:0,pos:0});insps.forEach(i=>TESTS.forEach(t=>{const r=(i.tests[t.id]||{}).r;if(r){tk[t.id].n++;if(r==='pos')tk[t.id].pos++}}));
   const lim=new Date();lim.setDate(lim.getDate()+14);const limS=lim.toISOString().slice(0,10);
-  const due=latest.filter(l=>l.followup&&l.followup<=limS).sort((a,b)=>a.followup.localeCompare(b.followup));
+  const allLatest=stores.map(s=>latestOf(s.id)).filter(Boolean);
+  const due=allLatest.filter(l=>l.followup&&l.followup<=limS).sort((a,b)=>a.followup.localeCompare(b.followup));
   const peddler=latest.filter(l=>(l.sources||[]).includes('peddler')).length;
-  const yr=new Date().getFullYear();const thisYear=S.inspections.filter(i=>(i.date||'').startsWith(String(yr))).length;
   const seg=(o,n)=>['green','yellow','red','none'].map(k=>o[k]?`<i style="width:${o[k]*100/n}%;background:${LEVELS[k].c}" title="${LEVELS[k].t} ${o[k]}"></i>`:'').join('');
+  const grpTable=(title,obj,col)=>Object.keys(obj).length?`<div class="card"><h3>${title}</h3><div class="tw"><table class="t"><tr><th>${col}</th><th class="n">ร้าน</th><th class="n">ตรวจแล้ว</th><th class="n">ผ่าน</th><th class="n">ปรับปรุง</th><th class="n">ไม่ผ่าน</th><th></th></tr>
+      ${Object.entries(obj).sort((a,b)=>a[0].localeCompare(b[0],'th')).map(([k,o])=>`<tr><td>${esc(k)}</td><td class="n">${o.n}</td><td class="n">${o.n-o.none}</td><td class="n">${o.green}</td><td class="n">${o.yellow}</td><td class="n">${o.red}</td><td style="width:18%"><div class="stack">${seg(o,o.n)}</div></td></tr>`).join('')}</table></div></div>`:'';
   $('#view').innerHTML=`
+    <div class="card noprint"><div class="grid2">
+      ${isSuper()?`<label class="f"><span>หน่วยบริการ</span><select class="i" id="rfu"><option value="">ทุกหน่วยบริการ</option>${(S.units||[]).map(u=>`<option value="${u.id}" ${u.id===RF.unit?'selected':''}>${esc(u.name)}</option>`).join('')}</select></label>`:
+        `<label class="f"><span>หน่วยบริการ</span><input class="i" value="${esc(uName||'-')}" disabled></label>`}
+      <label class="f"><span>ช่วงเวลา</span><select class="i" id="rfp"><option value="">— กำหนดเอง —</option><option value="fy">ปีงบประมาณนี้</option><option value="m">เดือนนี้</option><option value="q">3 เดือนล่าสุด</option><option value="all">ทั้งหมด</option></select></label>
+      <label class="f" style="margin:0"><span>ตั้งแต่วันที่</span><input class="i" type="date" id="rff" value="${RF.from}"></label>
+      <label class="f" style="margin:0"><span>ถึงวันที่</span><input class="i" type="date" id="rft" value="${RF.to}"></label></div>
+      <div class="btns" style="margin-top:12px"><button class="btn pri" data-act="print">🖨 พิมพ์ / PDF รายงาน</button><button class="btn" data-act="csvI">⬇ ผลตรวจช่วงนี้ (CSV)</button><button class="btn" data-act="csvS">⬇ ข้อมูลร้านค้า (CSV)</button></div>
+    </div>
+    <div class="card" style="text-align:center"><h2 style="margin:0">รายงานการตรวจร้านค้าและผลิตภัณฑ์สุขภาพ</h2>
+      <div><b>${esc(uName||'-')}</b></div><div class="small muted">ระหว่างวันที่ ${thDate(RF.from)} – ${thDate(RF.to)} · พิมพ์เมื่อ ${thDateTime(Date.now())}</div></div>
     <div class="stats">
-      <div class="stat"><b>${S.stores.length}</b><span>ร้านทั้งหมด</span></div>
+      <div class="stat"><b>${stores.length}</b><span>ร้านค้าทั้งหมด</span></div>
+      <div class="stat"><b>${done}</b><span>ร้านที่ตรวจแล้ว (${cov}%)</span></div>
+      <div class="stat"><b>${insps.length}</b><span>ครั้งที่ตรวจ</span></div>
       <div class="stat"><b style="color:var(--green)">${cnt.green}</b><span>ผ่าน</span></div>
       <div class="stat"><b style="color:var(--yellow)">${cnt.yellow}</b><span>ต้องปรับปรุง</span></div>
       <div class="stat"><b style="color:var(--red)">${cnt.red}</b><span>ไม่ผ่าน</span></div>
-      <div class="stat"><b style="color:var(--gray)">${cnt.none}</b><span>ยังไม่ตรวจ</span></div>
-      <div class="stat"><b>${thisYear}</b><span>ครั้งที่ตรวจปี ${yr+543}</span></div>
     </div>
-    ${S.stores.length?`<div class="card"><h3>ผลตรวจล่าสุดรายหมู่บ้าน</h3><div class="tw"><table class="t"><tr><th>หมู่บ้าน</th><th class="n">ร้าน</th><th class="n">ผ่าน</th><th class="n">ปรับปรุง</th><th class="n">ไม่ผ่าน</th><th class="n">ยังไม่ตรวจ</th><th></th></tr>
-      ${Object.entries(byV).sort((a,b)=>a[0].localeCompare(b[0],'th')).map(([k,o])=>`<tr><td>${esc(k)}</td><td class="n">${o.n}</td><td class="n">${o.green}</td><td class="n">${o.yellow}</td><td class="n">${o.red}</td><td class="n">${o.none}</td><td style="width:20%"><div class="stack">${seg(o,o.n)}</div></td></tr>`).join('')}</table></div></div>`:''}
-    <div class="card"><h3>ข้อที่พบปัญหาบ่อย (จากผลตรวจล่าสุดของแต่ละร้าน)</h3>
+    ${grpTable('สรุปรายหน่วยบริการ',byU,'หน่วยบริการ')}
+    ${grpTable('สรุปรายหมู่บ้าน (ผลตรวจล่าสุดในช่วงเวลา)',byV,'หมู่บ้าน')}
+    <div class="card"><h3>ข้อที่พบปัญหาบ่อย</h3>
       ${top.length?`<table class="t">${top.map(([k,n])=>{const it=k.startsWith('t_')?{s:'พบ'+TESTS.find(t=>'t_'+t.id===k).name,crit:true}:ALL_ITEMS.find(x=>x.id===k);
-        return `<tr><td>${esc(it.s)}${it.crit?'<span class="crit">สำคัญ</span>':''}</td><td class="n">${n} ร้าน</td><td style="width:30%"><div class="bar"><i style="width:${n*100/maxF}%"></i></div></td></tr>`}).join('')}</table>`:'<div class="muted">ยังไม่พบข้อบกพร่อง</div>'}
+        return `<tr><td>${esc(it.s)}${it.crit?'<span class="crit">สำคัญ</span>':''}</td><td class="n">${n} ร้าน</td><td style="width:30%"><div class="bar"><i style="width:${n*100/maxF}%"></i></div></td></tr>`}).join('')}</table>`:'<div class="muted">ไม่พบข้อบกพร่องในช่วงเวลานี้</div>'}
       ${peddler?`<p class="small" style="color:var(--yellow);margin:8px 0 0">⚠ มี ${peddler} ร้านที่รับสินค้าจากรถเร่/เซลส์เร่ที่ไม่ทราบที่มา</p>`:''}
     </div>
+    <div class="card"><h3>ผลการตรวจด้วยชุดทดสอบภาคสนาม</h3><table class="t"><tr><th>สารที่ตรวจ</th><th class="n">ตัวอย่าง</th><th class="n">พบ</th></tr>
+      ${TESTS.map(t=>`<tr><td>${t.name}</td><td class="n">${tk[t.id].n}</td><td class="n ${tk[t.id].pos?'ng':''}">${tk[t.id].pos}</td></tr>`).join('')}</table></div>
     <div class="card"><h3>📅 นัดตรวจติดตาม (ภายใน 14 วัน / เลยกำหนด)</h3>
       ${due.length?`<table class="t">${due.map(l=>{const s=storeById(l.storeId)||{};const over=l.followup<today();return `<tr data-go="#store/${l.storeId}" style="cursor:pointer"><td>${esc(s.name||'-')}<div class="small muted">${esc(s.village||'')}</div></td><td class="n ${over?'ng':''}">${thDate(l.followup)}${over?'<br><span class="small">เลยกำหนด</span>':''}</td></tr>`}).join('')}</table>`:'<div class="muted">ไม่มีนัดใกล้ถึง</div>'}
     </div>
-    <div class="card"><h3>⬇ ส่งออกข้อมูล (เปิดด้วย Excel)</h3>
-      <div class="btns"><button class="btn" data-act="csvS">ข้อมูลร้านค้า (CSV)</button><button class="btn" data-act="csvI">ผลการตรวจทั้งหมด (CSV)</button></div>
-      <p class="small muted" style="margin:8px 0 0">ข้อมูลทั้งหมดถูกบันทึกใน Google Sheets ของหน่วยงานด้วย</p>
-    </div>`;
-  $('#view').onclick=e=>{const g=e.target.closest('[data-go]');if(g){location.hash=g.dataset.go;return}
+    <div class="card"><h3>รายการผลการตรวจในช่วงเวลา (${insps.length} ครั้ง)</h3>
+      ${insps.length?`<div class="tw"><table class="t"><tr><th>วันที่</th><th>ร้าน</th><th>ผู้ตรวจ</th><th class="n">คะแนน</th><th>ผล</th></tr>
+        ${insps.map(i=>{const s=storeById(i.storeId)||{};return `<tr data-go="#report/${i.id}" style="cursor:pointer"><td style="white-space:nowrap">${thDate(i.date)}</td><td>${esc(s.name||'-')}<div class="small muted">${esc(s.village||'')}${isSuper()&&!RF.unit?' · '+esc(unitName(s.unitId)):''}</div></td><td class="small">${esc(i.inspector||'-')}</td><td class="n">${i.result&&i.result.pct!=null?i.result.pct+'%':'-'}</td><td>${badge(i.result?i.result.level:'none')}</td></tr>`}).join('')}</table></div>`:'<div class="muted">ไม่มีการตรวจในช่วงเวลานี้</div>'}
+    </div>
+    <div class="sign" style="margin-top:24px"><div></div><div>ลงชื่อ ...................................<br>(${esc(me().name||'.................................')})<br>${esc(me().position||'ผู้รายงาน')}</div></div>`;
+  const v=$('#view');
+  v.onchange=e=>{const t=e.target;
+    if(t.id==='rfu'){RF.unit=t.value;viewDash()}
+    else if(t.id==='rff'||t.id==='rft'){RF.from=$('#rff').value||'0000-01-01';RF.to=$('#rft').value||today();viewDash()}
+    else if(t.id==='rfp'){const d=new Date();const iso=x=>{x.setMinutes(x.getMinutes()-x.getTimezoneOffset());return x.toISOString().slice(0,10)};
+      if(t.value==='fy'){RF.from=fyStart();RF.to=today()}else if(t.value==='m'){RF.from=today().slice(0,8)+'01';RF.to=today()}
+      else if(t.value==='q'){const q=new Date(d);q.setMonth(q.getMonth()-3);RF.from=iso(q);RF.to=today()}else if(t.value==='all'){RF.from='2000-01-01';RF.to=today()}
+      viewDash()}};
+  v.onclick=e=>{const g=e.target.closest('[data-go]');if(g){location.hash=g.dataset.go;return}
     const b=e.target.closest('[data-act]');if(!b)return;
-    if(b.dataset.act==='csvS')downloadCSV(`ร้านค้า_${today()}.csv`,S.stores.map(s=>{const l=latestOf(s.id);return {'รหัส':s.id,...flatStore(s),'ผลตรวจล่าสุด':LEVELS[levelOf(s.id)].t,'วันที่ตรวจล่าสุด':l?l.date:'','คะแนนล่าสุด (%)':l&&l.result?l.result.pct??'':''}}));
-    if(b.dataset.act==='csvI')downloadCSV(`ผลการตรวจ_${today()}.csv`,[...S.inspections].sort((a,b)=>(a.date||'').localeCompare(b.date||'')).map(i=>({'รหัสการตรวจ':i.id,...flatInsp(i)})))};
+    if(b.dataset.act==='print')window.print();
+    if(b.dataset.act==='csvS')downloadCSV(`ร้านค้า_${today()}.csv`,stores.map(s=>{const l=latestOf(s.id);return {'รหัส':s.id,...flatStore(s),'ผลตรวจล่าสุด':LEVELS[levelOf(s.id)].t,'วันที่ตรวจล่าสุด':l?l.date:'','คะแนนล่าสุด (%)':l&&l.result?l.result.pct??'':''}}));
+    if(b.dataset.act==='csvI')downloadCSV(`ผลการตรวจ_${RF.from}_${RF.to}.csv`,[...insps].reverse().map(i=>({'รหัสการตรวจ':i.id,'หน่วยบริการ':unitName((storeById(i.storeId)||{}).unitId),...flatInsp(i)})))};
 }
 function downloadCSV(name,rows){if(!rows.length){toast('ไม่มีข้อมูล');return}
   const keys=[...new Set(rows.flatMap(r=>Object.keys(r)))];const q=v=>{v=String(v??'');return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
@@ -865,7 +913,7 @@ function loadGIS(){return new Promise((res,rej)=>{if(window.google&&google.accou
   const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.async=true;s.onload=()=>res();s.onerror=()=>rej(new Error('โหลด Google Sign-In ไม่ได้'));document.head.appendChild(s)})}
 async function serverInfo(force){
   if(S.server&&!force)return S.server;
-  try{const j=await api('ping');S.server={googleClientId:j.googleClientId||'',sheet:j.sheet};await idb.put('kv',S.server,'server')}
+  try{const j=await api('ping');S.server={googleClientId:j.googleClientId||'',sheet:j.sheet,units:j.units||[]};if(j.units)S.units=j.units;await idb.put('kv',S.server,'server')}
   catch(e){S.server=(await idb.get('kv','server'))||null;if(!S.server)throw e}
   return S.server}
 async function clearAuth(wipe){
@@ -942,46 +990,93 @@ async function viewAuth(){
     google.accounts.id.renderButton(el,{type:'standard',theme:'filled_blue',size:'large',text:'signin_with',shape:'pill',locale:'th',width:Math.min(320,el.clientWidth||300)});
   }catch(e){const el=$('#gbtn');if(el)el.innerHTML=`<span class="small ng">${esc(e.message)}</span>`}
 }
-function viewRegister(){
+async function unitsForForm(){try{const info=await serverInfo(true);if(info.units)S.units=info.units}catch(e){}return S.units||[]}
+async function viewRegister(){
   const u=me();
+  authShell('<div class="empty">⏳ กำลังโหลด…</div>');
+  const units=await unitsForForm();
+  const lockUnit=u.status==='approved'&&u.role!=='superadmin'&&u.unitId;
   authShell(`<h3 style="margin:0 0 4px">📝 ข้อมูลผู้สมัครใช้งาน</h3><div class="small muted" style="margin-bottom:12px">${esc(u.email)}</div>
     <label class="f"><span>ชื่อ-นามสกุล *</span><input class="i" id="rname" value="${esc(u.name||'')}"></label>
     <label class="f"><span>ตำแหน่ง *</span><input class="i" id="rpos" value="${esc(u.position||'')}" placeholder="เช่น นักวิชาการสาธารณสุข, อสม."></label>
-    <label class="f"><span>หน่วยงาน</span><input class="i" id="runit" value="${esc(u.unit||'')}" placeholder="เช่น รพ.สต.บ้าน..."></label>
+    ${units.length?`<label class="f"><span>หน่วยบริการ *</span><select class="i" id="runit" ${lockUnit?'disabled':''}><option value="">— เลือกหน่วยบริการ —</option>${units.map(x=>`<option value="${x.id}" ${x.id===u.unitId?'selected':''}>${esc(x.name)}</option>`).join('')}</select>
+      ${lockUnit?'<span class="small muted">เปลี่ยนหน่วยบริการได้โดยผู้ดูแลระบบสูงสุด</span>':'<span class="small muted">ไม่พบหน่วยของคุณ? แจ้งผู้ดูแลระบบให้เพิ่มหน่วยบริการ</span>'}</label>`:
+      `<label class="f"><span>หน่วยงาน</span><input class="i" id="runit2" value="${esc(u.unit||'')}"></label>`}
     <label class="f"><span>เบอร์โทรศัพท์ *</span><input class="i" id="rphone" type="tel" value="${esc(u.phone||'')}"></label>
     <button class="btn pri block" id="rsave">${u.status==='approved'?'บันทึก':'ส่งคำขอสมัครใช้งาน'}</button>
     <button class="btn block" id="rcancel" style="margin-top:8px">${u.status==='approved'?'ยกเลิก':'ออกจากระบบ'}</button>`);
-  $('#rsave').onclick=async e=>{const p={name:$('#rname').value.trim(),position:$('#rpos').value.trim(),unit:$('#runit').value.trim(),phone:$('#rphone').value.trim()};
-    if(!p.name||!p.position||!p.phone){toast('กรุณากรอกข้อมูลที่มี * ให้ครบ');return}
+  $('#rsave').onclick=async e=>{const p={name:$('#rname').value.trim(),position:$('#rpos').value.trim(),phone:$('#rphone').value.trim()};
+    if($('#runit')&&!lockUnit)p.unitId=$('#runit').value;if($('#runit2'))p.unit=$('#runit2').value.trim();
+    if(!p.name||!p.position||!p.phone||($('#runit')&&!lockUnit&&!p.unitId)){toast('กรุณากรอกข้อมูลที่มี * ให้ครบ');return}
     e.target.disabled=true;try{const j=await api('register',{profile:p});S.auth.user=j.user;await idb.put('kv',S.auth,'auth');S.route.editProfile=false;toast('บันทึกแล้ว ✓');
       if(authed()){location.hash='#settings'}route()}catch(err){toast(err.message,4000)}e.target.disabled=false};
   $('#rcancel').onclick=async()=>{S.route.editProfile=false;if(authed()){location.hash='#settings';route()}else{await clearAuth(true);await idb.del('kv','lastEmail');route()}};
 }
 
 /* ====================== view: users (admin) ====================== */
+const UF={unit:''};
 async function viewUsers(){
-  setHeader('👥 จัดการผู้ใช้','',true);const v=$('#view');
+  setHeader('👥 จัดการผู้ใช้',isSuper()?'ทุกหน่วยบริการ':myUnitName(),true);const v=$('#view');
   v.innerHTML='<div class="empty">⏳ กำลังโหลดรายชื่อผู้ใช้…</div>';
-  let users;try{users=(await api('users')).users}catch(e){v.innerHTML=`<div class="empty">โหลดไม่สำเร็จ: ${esc(e.message)}<br>(ต้องเชื่อมต่ออินเทอร์เน็ต)</div>`;return}
+  let users,units;try{const j=await api('users');users=j.users;units=j.units||[];S.units=units.map(u=>({id:u.id,name:u.name}));await idb.put('kv',S.units,'units')}
+  catch(e){v.innerHTML=`<div class="empty">โหลดไม่สำเร็จ: ${esc(e.message)}<br>(ต้องเชื่อมต่ออินเทอร์เน็ต)</div>`;return}
   if(S.route.v!=='users')return;
   const ord={pending:0,approved:1,disabled:2};users.sort((a,b)=>ord[a.status]-ord[b.status]||(b.created||0)-(a.created||0));
   const pend=users.filter(u=>u.status==='pending').length;S.pending=pend;setPending(pend);
+  const shown=users.filter(u=>!UF.unit||(UF.unit==='-'?!u.unitId:u.unitId===UF.unit));
   const stB={pending:'b-yellow',approved:'b-green',disabled:'b-red'};
-  v.innerHTML=`<div class="info">ผู้ใช้ทั้งหมด ${users.length} คน${pend?` · <b>รออนุมัติ ${pend} คน</b>`:''}<br><span class="small">ผู้ดูแลระบบ: จัดการผู้ใช้/ลบร้าน · เจ้าหน้าที่: เพิ่ม/แก้ไข/ตรวจ · ดูอย่างเดียว: ดูข้อมูลและรายงาน</span></div>
-    ${users.map(u=>`<div class="card" data-email="${esc(u.email)}">
+  const roleOpts=u=>(isSuper()?['unitadmin','staff','viewer']:['staff','viewer']).map(k=>`<option value="${k}" ${u.role===k?'selected':''}>${ROLE_T[k]}</option>`).join('');
+  const canManage=u=>u.email!==me().email&&u.role!=='superadmin'&&(isSuper()||(u.unitId===me().unitId&&u.role!=='unitadmin'));
+  v.innerHTML=`${isSuper()?`<div class="card"><h3>🏥 หน่วยบริการ (${units.length})</h3>
+      <table class="t">${units.map(x=>`<tr data-unit="${x.id}"><td>${esc(x.name)}<div class="small muted">ผู้ใช้ ${users.filter(u=>u.unitId===x.id).length} คน · ร้าน ${S.stores.filter(s=>s.unitId===x.id).length} ร้าน</div></td>
+        <td class="n"><button class="btn sm" data-u="ren">แก้ชื่อ</button> <button class="btn sm danger" data-u="del">ลบ</button></td></tr>`).join('')}</table>
+      <div class="row" style="margin-top:10px"><input class="i grow" id="newUnit" placeholder="ชื่อหน่วยบริการใหม่ เช่น รพ.สต.บ้าน..."><button class="btn pri" data-u="add">＋ เพิ่ม</button></div></div>`:''}
+    ${(()=>{const inc=users.filter(u=>u.transferTo&&(isSuper()||u.transferTo===me().unitId));return inc.length?`<div class="card" style="border:2px solid #f59e0b"><h3>🔁 คำขอย้ายหน่วยบริการ (${inc.length})</h3>
+      ${inc.map(u=>`<div class="item" data-email="${esc(u.email)}"><b>${esc(u.name||u.email)}</b> <span class="small muted">${esc(u.email)}</span><div class="small">${esc(u.position||'-')} · จาก <b>${esc(unitName(u.unitId)||u.unit||'-')}</b> → ไป <b>${esc(unitName(u.transferTo))}</b><br><span class="muted">ขอโดย ${esc(u.transferBy===u.email?'เจ้าตัว':u.transferBy)} · ${thDateTime(u.transferAt)}</span></div>
+        <div class="row" style="margin-top:6px"><button class="btn pri sm" data-xd="1">✓ อนุมัติให้ย้ายเข้า</button><button class="btn danger sm" data-xd="0">ไม่อนุมัติ</button></div></div>`).join('')}</div>`:''})()}
+    <div class="info">ผู้ใช้ ${users.length} คน${pend?` · <b>รออนุมัติ ${pend} คน</b>`:''}<br>
+      <span class="small">${isSuper()?'ผู้ดูแลระบบสูงสุด: จัดการได้ทุกหน่วย กำหนดผู้ดูแลหน่วยบริการและย้ายหน่วยได้':'ผู้ดูแลหน่วยบริการ: อนุมัติ/ระงับ/ลบ เจ้าหน้าที่ในหน่วยของคุณ'}</span></div>
+    ${isSuper()?`<select class="i" id="ufu" style="margin-bottom:10px"><option value="">ทุกหน่วยบริการ</option>${units.map(x=>`<option value="${x.id}" ${x.id===UF.unit?'selected':''}>${esc(x.name)}</option>`).join('')}<option value="-" ${UF.unit==='-'?'selected':''}>(ยังไม่ระบุหน่วย)</option></select>`:''}
+    ${shown.map(u=>`<div class="card" data-email="${esc(u.email)}">
       <div class="acct">${avatar(u,44)}<div class="grow" style="min-width:0"><b>${esc(u.name||'(ยังไม่ระบุชื่อ)')}</b> <span class="badge ${stB[u.status]||'b-none'}">${STATUS_T[u.status]||u.status}</span>
-        <div class="small muted" style="word-break:break-all">${esc(u.email)}</div></div></div>
-      <div class="small" style="margin:8px 0">${esc(u.position||'-')} · ${esc(u.unit||'-')} · ${u.phone?`<a href="tel:${esc(u.phone)}">${esc(u.phone)}</a>`:'-'}<br>
+        <div class="small muted" style="word-break:break-all">${esc(u.email)}</div><span class="small" style="color:var(--pri);font-weight:700">${ROLE_T[u.role]||u.role}</span></div></div>
+      <div class="small" style="margin:8px 0">${esc(u.position||'-')} · <b>${esc(u.role==='superadmin'?'ทุกหน่วยบริการ':(unitName(u.unitId)||u.unit||'-'))}</b>${u.unitId||u.role==='superadmin'?'':' <span class="ng">(ยังไม่กำหนดหน่วย)</span>'} · ${u.phone?`<a href="tel:${esc(u.phone)}">${esc(u.phone)}</a>`:'-'}<br>
         <span class="muted">สมัคร ${thDateTime(u.created)} · เข้าใช้ล่าสุด ${thDateTime(u.lastLogin)}</span></div>
-      ${u.email===me().email?'<div class="small muted">(บัญชีของคุณ)</div>':`<div class="row">
-        <select class="i" data-role style="flex:1;min-width:140px">${Object.entries(ROLE_T).map(([k,t])=>`<option value="${k}" ${u.role===k?'selected':''}>${t}</option>`).join('')}</select>
-        ${u.status!=='approved'?'<button class="btn pri sm" data-st="approved">✓ อนุมัติ</button>':''}
-        ${u.status!=='disabled'?'<button class="btn danger sm" data-st="disabled">ระงับ</button>':''}</div>`}
-    </div>`).join('')}`;
-  const upd=async(email,changes,el)=>{el&&(el.disabled=true);try{await api('userUpdate',{email,changes});toast('อัปเดตแล้ว ✓');viewUsers()}catch(e){toast(e.message,4000);el&&(el.disabled=false)}};
-  v.onclick=e=>{const b=e.target.closest('[data-st]');if(!b)return;const c=b.closest('[data-email]');
-    if(b.dataset.st==='disabled'&&!confirm('ระงับการใช้งานบัญชีนี้?'))return;upd(c.dataset.email,{status:b.dataset.st,role:$('[data-role]',c).value},b)};
-  v.onchange=e=>{if(e.target.dataset.role===undefined)return;const c=e.target.closest('[data-email]');upd(c.dataset.email,{role:e.target.value},e.target)};
+      ${u.transferTo?`<div class="note" style="margin-bottom:8px">🔁 ขอย้ายไป <b>${esc(unitName(u.transferTo))}</b> — รอผู้ดูแลหน่วยปลายทางอนุมัติ ${canManage(u)?'<button class="btn sm" data-xc>ยกเลิกคำขอ</button>':''}</div>`:''}
+      ${u.email===me().email?'<div class="small muted">(บัญชีของคุณ)</div>':!canManage(u)?(u.transferTo===me().unitId&&u.unitId!==me().unitId?'<div class="small muted">(ขอย้ายเข้าหน่วยของคุณ — อนุมัติได้ที่กล่องด้านบน)</div>':'<div class="small muted">(จัดการโดยผู้ดูแลระบบสูงสุด)</div>'):`
+        ${isSuper()?`<select class="i" data-unitsel style="margin-bottom:8px"><option value="">— หน่วยบริการ —</option>${units.map(x=>`<option value="${x.id}" ${x.id===u.unitId?'selected':''}>${esc(x.name)}</option>`).join('')}</select>`:''}
+        <div class="row"><select class="i" data-role style="flex:1;min-width:140px">${roleOpts(u)}</select>
+        ${u.status!=='approved'?`<button class="btn pri sm" data-st="approved">✓ ${u.status==='disabled'?'เปิดใช้งาน':'อนุมัติ'}</button>`:''}
+        ${u.status!=='disabled'?'<button class="btn danger sm" data-st="disabled">ระงับ</button>':''}
+        <button class="btn danger sm" data-del>🗑 ลบ</button></div>
+        ${!isSuper()&&!u.transferTo&&u.status==='approved'?`<div class="row" style="margin-top:8px"><select class="i" data-xto style="flex:1;min-width:140px"><option value="">🔁 สั่งย้ายไปหน่วยบริการ…</option>${units.filter(x=>x.id!==u.unitId).map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select><button class="btn sm" data-xr>ส่งคำขอย้าย</button></div>`:''}`}
+    </div>`).join('')||'<div class="empty">ไม่มีผู้ใช้</div>'}`;
+  const call=async(action,data,el,msg)=>{el&&(el.disabled=true);try{await api(action,data);toast(msg||'อัปเดตแล้ว ✓');viewUsers()}catch(e){toast(e.message,4500);el&&(el.disabled=false)}};
+  v.onclick=e=>{
+    const ub=e.target.closest('[data-u]');
+    if(ub){const a=ub.dataset.u;const row=ub.closest('[data-unit]');
+      if(a==='add'){const n=$('#newUnit').value.trim();if(!n){toast('ใส่ชื่อหน่วยบริการ');return}call('unitSave',{unit:{name:n}},ub,'เพิ่มหน่วยบริการแล้ว ✓')}
+      else if(a==='ren'){const old=unitName(row.dataset.unit);const n=prompt('ชื่อหน่วยบริการใหม่',old);if(n&&n.trim()&&n.trim()!==old)call('unitSave',{unit:{id:row.dataset.unit,name:n.trim()}},ub)}
+      else if(a==='del'){if(confirm(`ลบหน่วยบริการ "${unitName(row.dataset.unit)}"?`))call('unitDelete',{id:row.dataset.unit},ub,'ลบหน่วยบริการแล้ว')}
+      return}
+    const c=e.target.closest('[data-email]');if(!c)return;const email=c.dataset.email;
+    const b=e.target.closest('[data-st]');
+    if(b){if(b.dataset.st==='disabled'&&!confirm('ระงับการใช้งานบัญชีนี้?'))return;
+      const ch={status:b.dataset.st,role:$('[data-role]',c).value};const us=$('[data-unitsel]',c);if(us)ch.unitId=us.value;
+      if(b.dataset.st==='approved'&&us&&!us.value){toast('กรุณาเลือกหน่วยบริการก่อนอนุมัติ');return}
+      call('userUpdate',{email,changes:ch},b);return}
+    const xd=e.target.closest('[data-xd]');
+    if(xd){const ok=xd.dataset.xd==='1';if(!ok&&!confirm('ไม่อนุมัติคำขอย้ายนี้?'))return;call('transferDecide',{email,approve:ok},xd,ok?'อนุมัติการย้ายแล้ว ✓':'ปฏิเสธคำขอแล้ว');return}
+    const xc=e.target.closest('[data-xc]');if(xc){call('transferCancel',{email},xc,'ยกเลิกคำขอย้ายแล้ว');return}
+    const xr=e.target.closest('[data-xr]');
+    if(xr){const to=$('[data-xto]',c).value;if(!to){toast('เลือกหน่วยบริการปลายทาง');return}
+      if(!confirm(`ส่งคำขอย้าย ${email} ไป ${unitName(to)}?\nต้องรอผู้ดูแลหน่วยบริการปลายทางอนุมัติ`))return;call('transferRequest',{email,unitId:to},xr,'ส่งคำขอย้ายแล้ว รอหน่วยปลายทางอนุมัติ');return}
+    const d=e.target.closest('[data-del]');
+    if(d){if(!confirm(`ลบบัญชี ${email} ออกจากระบบ?\nผู้ใช้จะต้องสมัครใหม่หากต้องการใช้งาน (ข้อมูลร้าน/ผลตรวจที่บันทึกไว้ไม่ถูกลบ)`))return;call('userDelete',{email},d,'ลบบัญชีแล้ว')}};
+  v.onchange=e=>{if(e.target.id==='ufu'){UF.unit=e.target.value;viewUsers();return}
+    const c=e.target.closest('[data-email]');if(!c)return;
+    if(e.target.dataset.role!==undefined)call('userUpdate',{email:c.dataset.email,changes:{role:e.target.value}},e.target);
+    else if(e.target.dataset.unitsel!==undefined&&e.target.value)call('userUpdate',{email:c.dataset.email,changes:{unitId:e.target.value}},e.target,'ย้ายหน่วยบริการแล้ว ✓')};
 }
 
 /* ====================== view: settings ====================== */
@@ -990,12 +1085,17 @@ function viewSettings(){
   $('#view').innerHTML=`
     <div class="card"><div class="acct">${avatar(u,56)}<div class="grow" style="min-width:0"><b style="font-size:17px">${esc(u.name||'-')}</b>
         <div class="small muted" style="word-break:break-all">${esc(u.email)}</div><span class="badge b-green">${ROLE_T[u.role]||u.role}</span></div></div>
-      <div class="small" style="margin:10px 0">${esc(u.position||'')}${u.unit?' · '+esc(u.unit):''}${u.phone?' · '+esc(u.phone):''}</div>
+      <div class="small" style="margin:10px 0">${esc(u.position||'')}${u.phone?' · '+esc(u.phone):''}<br>หน่วยบริการ: <b>${esc(myUnitName()||(isSuper()?'ทุกหน่วยบริการ':'-'))}</b></div>
+      ${!u.unitId&&!isSuper()?'<div class="note">⚠ บัญชียังไม่ได้กำหนดหน่วยบริการ — บันทึกข้อมูลไม่ได้ กรุณาติดต่อผู้ดูแลระบบสูงสุด</div>':''}
       <div class="btns"><button class="btn" data-act="profile">✏️ แก้ไขข้อมูลส่วนตัว</button><button class="btn danger" data-act="logout">ออกจากระบบ</button></div>
       ${isAdmin()?`<a class="btn pri block" id="usersBtn" href="#users" style="margin-top:10px">👥 จัดการผู้ใช้ / อนุมัติผู้สมัคร${S.pending?` (รอ ${S.pending} คน)`:''}</a>`:''}
     </div>
+    ${!isSuper()&&u.unitId?`<div class="card"><h3>🔁 ย้ายหน่วยบริการ</h3>
+      ${u.transferTo?`<div class="note">ส่งคำขอย้ายไป <b>${esc(unitName(u.transferTo))}</b> แล้ว — รอผู้ดูแลหน่วยบริการปลายทางอนุมัติ</div><button class="btn block" data-act="xcancel">ยกเลิกคำขอย้าย</button>`:
+      `<p class="small muted" style="margin-top:0">ย้ายที่ปฏิบัติงาน: เลือกหน่วยบริการใหม่ แล้วรอผู้ดูแลหน่วยบริการนั้นอนุมัติ ระหว่างรอยังใช้งานหน่วยเดิมได้ตามปกติ</p>
+       <div class="row"><select class="i" id="xto" style="flex:1;min-width:160px"><option value="">— เลือกหน่วยบริการใหม่ —</option>${(S.units||[]).filter(x=>x.id!==u.unitId).map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select><button class="btn pri" data-act="xreq">ส่งคำขอย้าย</button></div>`}
+    </div>`:''}
     <div class="card"><h3>ค่าในเครื่องนี้</h3>
-      <label class="f"><span>หน่วยงาน (แสดงบนแบบบันทึก)</span><input class="i" data-k="unit" value="${esc(st.unit||u.unit||'')}"></label>
       <label class="f" style="margin:0"><span>รายชื่อหมู่บ้านในพื้นที่ (บรรทัดละ 1 หมู่บ้าน)</span><textarea class="i" data-k="villages" placeholder="บ้าน...&#10;บ้าน...">${esc(st.villages)}</textarea></label>
     </div>
     <div class="card"><h3>☁ การเชื่อมต่อ</h3>
@@ -1007,12 +1107,12 @@ function viewSettings(){
       <label class="f"><span>Google Maps API Key (ไม่บังคับ)</span><input class="i" data-k="gmapKey" value="${esc(st.gmapKey)}" placeholder="ว่างไว้ = ใช้แผนที่ OpenStreetMap ฟรี"></label>
       <button class="btn" data-act="center">📍 ตั้งจุดกลางแผนที่เป็นตำแหน่งปัจจุบัน</button>
     </div>
-    ${isAdmin()?`<div class="card"><h3>💾 สำรองข้อมูล (ผู้ดูแล)</h3>
+    ${isSuper()?`<div class="card"><h3>💾 สำรองข้อมูล (ผู้ดูแลระบบสูงสุด)</h3>
       <div class="btns"><button class="btn" data-act="backup">⬇ สำรองข้อมูล (JSON)</button><button class="btn" data-act="restore">⬆ นำเข้าข้อมูลสำรอง</button></div></div>`:''}
     <div class="card"><h3>📖 คู่มือการใช้งาน</h3>
       <div class="btns"><a class="btn pri" href="manual.html">📖 เปิดคู่มือ</a><a class="btn" href="manual.pdf" download="คู่มือการใช้งาน ShopStation.pdf">⬇ ดาวน์โหลด PDF</a></div></div>
     <div class="card small muted">
-      <b>ShopStation</b> v2.1 — ร้าน ${S.stores.length} · ผลตรวจ ${S.inspections.length} รายการ · ${navigator.onLine?'ออนไลน์':'ออฟไลน์'}<br>
+      <b>ShopStation</b> v3.0 — ร้าน ${S.stores.length} · ผลตรวจ ${S.inspections.length} รายการ · ${navigator.onLine?'ออนไลน์':'ออฟไลน์'}<br>
       <span id="installHint"></span>
     </div>`;
   const ih=$('#installHint');const standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone;
@@ -1025,6 +1125,9 @@ function viewSettings(){
     toast('บันทึกการตั้งค่าแล้ว')};
   v.onclick=async e=>{const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
     if(a==='logout')logout();
+    else if(a==='xreq'){const to=$('#xto').value;if(!to){toast('เลือกหน่วยบริการใหม่');return}if(!confirm(`ขอย้ายไป ${unitName(to)}?\nต้องรอผู้ดูแลหน่วยบริการปลายทางอนุมัติ`))return;
+      b.disabled=true;try{const j=await api('transferRequest',{unitId:to});S.auth.user=j.user;await idb.put('kv',S.auth,'auth');toast('ส่งคำขอย้ายแล้ว ✓');viewSettings()}catch(err){toast(err.message,4500);b.disabled=false}}
+    else if(a==='xcancel'){b.disabled=true;try{const j=await api('transferCancel',{});S.auth.user=j.user;await idb.put('kv',S.auth,'auth');toast('ยกเลิกคำขอแล้ว');viewSettings()}catch(err){toast(err.message);b.disabled=false}}
     else if(a==='profile'){S.route.editProfile=true;document.body.classList.add('authing');viewRegister()}
     else if(a==='test'){b.disabled=true;try{const j=await api('me');toast(`เชื่อมต่อสำเร็จ ✓ (${ROLE_T[j.user.role]})`,3500)}catch(err){toast('เชื่อมต่อไม่สำเร็จ: '+err.message,5000)}b.disabled=false}
     else if(a==='sync')await sync(true);
@@ -1048,7 +1151,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)sync(false
   try{await idb.open()}catch(e){document.body.innerHTML='<div class="empty">เบราว์เซอร์นี้ไม่รองรับการเก็บข้อมูล (IndexedDB)<br>กรุณาใช้ Chrome หรือ Safari และไม่ใช้โหมดไม่ระบุตัวตน</div>';return}
   S.settings=Object.assign({},DEF_SET,(await idb.get('kv','settings'))||{});
   if(CONFIG.SERVER_URL&&!S.settings.serverUrl)S.settings.serverUrl=CONFIG.SERVER_URL;
-  S.lastSync=(await idb.get('kv','lastSync'))||0;S.server=(await idb.get('kv','server'))||null;
+  S.lastSync=(await idb.get('kv','lastSync'))||0;S.server=(await idb.get('kv','server'))||null;S.units=(await idb.get('kv','units'))||(S.server&&S.server.units)||[];
   S.auth=(await idb.get('kv','auth'))||null;
   if(S.auth&&S.auth.exp&&Date.now()>S.auth.exp){await clearAuth(false);toast('หมดเวลาการเข้าสู่ระบบ กรุณาเข้าสู่ระบบใหม่',4000)}
   S.stores=await idb.all('stores');S.inspections=await idb.all('inspections');
