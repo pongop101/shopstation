@@ -264,11 +264,11 @@ const idb={db:null,
 
 /* ====================== state ====================== */
 const S={stores:[],inspections:[],queueN:0,settings:{},lastSync:0,route:{},auth:null,server:null};
-const ROLE_T={superadmin:'ผู้ดูแลระบบสูงสุด',unitadmin:'ผู้ดูแลหน่วยบริการ',staff:'เจ้าหน้าที่',viewer:'ดูอย่างเดียว'};
+const ROLE_T={superadmin:'ผู้ดูแลระบบสูงสุด',unitadmin:'ผู้ดูแลหน่วยบริการ',staff:'เจ้าหน้าที่',osm:'อสม.',viewer:'ดูอย่างเดียว'};
 const STATUS_T={pending:'รออนุมัติ',approved:'ใช้งานได้',disabled:'ระงับ'};
 const me=()=>S.auth&&S.auth.user||{};
 const authed=()=>!!(S.auth&&S.auth.token&&me().status==='approved');
-const canEdit=()=>authed()&&['superadmin','unitadmin','staff'].includes(me().role);
+const canEdit=()=>authed()&&['superadmin','unitadmin','staff','osm'].includes(me().role);
 const isAdmin=()=>authed()&&['superadmin','unitadmin'].includes(me().role);
 const isSuper=()=>authed()&&me().role==='superadmin';
 const unitObj=id=>(S.units||[]).find(u=>u.id===id)||null;
@@ -1084,7 +1084,7 @@ async function viewUsers(){
   const pend=users.filter(u=>u.status==='pending').length;S.pending=pend;setPending(pend);
   const shown=users.filter(u=>!UF.unit||(UF.unit==='-'?!u.unitId:u.unitId===UF.unit));
   const stB={pending:'b-yellow',approved:'b-green',disabled:'b-red'};
-  const roleOpts=u=>(isSuper()?['unitadmin','staff','viewer']:['staff','viewer']).map(k=>`<option value="${k}" ${u.role===k?'selected':''}>${ROLE_T[k]}</option>`).join('');
+  const roleOpts=u=>(isSuper()?['unitadmin','staff','osm','viewer']:['staff','osm','viewer']).map(k=>`<option value="${k}" ${u.role===k?'selected':''}>${ROLE_T[k]}</option>`).join('');
   const canManage=u=>u.email!==me().email&&u.role!=='superadmin'&&(isSuper()||(u.unitId===me().unitId&&u.role!=='unitadmin'));
   v.innerHTML=`${isSuper()?`<div class="card"><h3>🏥 หน่วยบริการ (${units.length})</h3>
       <div class="tw" style="max-height:320px;overflow-y:auto"><table class="t">${units.map(x=>`<tr data-unit="${x.id}"><td><b>${esc(x.code||'-')}</b> ${esc(x.name)}<div class="small muted">ผู้ใช้ ${users.filter(u=>u.unitId===x.id).length} คน · ร้าน ${S.stores.filter(s=>s.unitId===x.id).length} ร้าน</div></td>
