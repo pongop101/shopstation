@@ -54,7 +54,7 @@ const SHEET_UNITS = 'Units';
 const PHOTO_FOLDER = 'ShopStation Photos';
 const USER_COLS = ['email', 'name', 'position', 'unit', 'phone', 'role', 'status', 'picture', 'created', 'lastLogin', 'approvedBy', 'note', 'unitId', 'transferTo', 'transferBy', 'transferAt'];
 const UNIT_COLS = ['id', 'name', 'created', 'createdBy', 'code'];
-const ROLES = { superadmin: 'ผู้ดูแลระบบสูงสุด', unitadmin: 'ผู้ดูแลหน่วยบริการ', staff: 'เจ้าหน้าที่', viewer: 'ดูอย่างเดียว' };
+const ROLES = { superadmin: 'ผู้ดูแลระบบสูงสุด', unitadmin: 'ผู้ดูแลหน่วยบริการ', staff: 'เจ้าหน้าที่', osm: 'อสม.', viewer: 'ดูอย่างเดียว' };
 
 function setup() {
   [SHEET_STORES, SHEET_INSP].forEach(n => getSheet_(n));
@@ -100,11 +100,11 @@ function doPost(e) {
 
     switch (a) {
       case 'list': return json_(list_(user));
-      case 'saveStore': need_(user, ['superadmin', 'unitadmin', 'staff']); return json_(withLock_(() => saveStore_(user, req.record, req.flat)));
-      case 'saveInspection': need_(user, ['superadmin', 'unitadmin', 'staff']); return json_(withLock_(() => saveInsp_(user, req.record, req.flat)));
+      case 'saveStore': need_(user, ['superadmin', 'unitadmin', 'staff', 'osm']); return json_(withLock_(() => saveStore_(user, req.record, req.flat)));
+      case 'saveInspection': need_(user, ['superadmin', 'unitadmin', 'staff', 'osm']); return json_(withLock_(() => saveInsp_(user, req.record, req.flat)));
       case 'deleteStore': need_(user, ['superadmin', 'unitadmin']); return json_(withLock_(() => deleteStore_(user, req.id)));
-      case 'deleteInspection': need_(user, ['superadmin', 'unitadmin', 'staff']); return json_(withLock_(() => deleteInsp_(user, req.id)));
-      case 'uploadPhoto': need_(user, ['superadmin', 'unitadmin', 'staff']); return json_(uploadPhoto_(req));
+      case 'deleteInspection': need_(user, ['superadmin', 'unitadmin', 'staff', 'osm']); return json_(withLock_(() => deleteInsp_(user, req.id)));
+      case 'uploadPhoto': need_(user, ['superadmin', 'unitadmin', 'staff', 'osm']); return json_(uploadPhoto_(req));
       case 'users': need_(user, ['superadmin', 'unitadmin']); return json_({ ok: true, users: visibleUsers_(user).map(publicUser_), units: readUnits_() });
       case 'userUpdate': need_(user, ['superadmin', 'unitadmin']); return json_(withLock_(() => userUpdate_(user, req.email, req.changes || {})));
       case 'userDelete': need_(user, ['superadmin', 'unitadmin']); return json_(withLock_(() => userDelete_(user, req.email)));
@@ -302,7 +302,7 @@ function userUpdate_(admin, email, ch) {
   if (isSuperEmail_(email)) throw new Error('แก้ไขผู้ดูแลระบบสูงสุดไม่ได้');
   if (ch.role) {
     if (!ROLES[ch.role]) throw new Error('บทบาทไม่ถูกต้อง');
-    if (!isSuper_(admin) && ['staff', 'viewer'].indexOf(ch.role) < 0) throw err_('FORBIDDEN', 'ผู้ดูแลหน่วยบริการกำหนดได้เฉพาะสิทธิ์ เจ้าหน้าที่ / ดูอย่างเดียว');
+    if (!isSuper_(admin) && ['staff', 'osm', 'viewer'].indexOf(ch.role) < 0) throw err_('FORBIDDEN', 'ผู้ดูแลหน่วยบริการกำหนดได้เฉพาะสิทธิ์ เจ้าหน้าที่ / อสม. / ดูอย่างเดียว');
     u.role = ch.role;
   }
   if (ch.unitId !== undefined && ch.unitId !== u.unitId) {
