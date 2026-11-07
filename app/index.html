@@ -90,7 +90,10 @@ input.i:focus,select.i:focus,textarea.i:focus{outline:2px solid var(--pri-l);bor
 .item{padding:10px 0;border-top:1px solid var(--line)}
 .item .lbl{margin-bottom:6px}
 .crit{font-size:11px;background:var(--red-l);color:var(--red);border-radius:6px;padding:1px 6px;margin-left:4px;font-weight:700;white-space:nowrap}
-.tri{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+.tri{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}.tri.tri2{grid-template-columns:1fr 1fr}
+.tri[data-item] button[data-v=y]:not(.on){color:#15803d}.tri[data-item] button[data-v=n]:not(.on){color:#b91c1c}
+.skipbox{display:flex;gap:8px;align-items:center;background:#f3f4f6;border-radius:10px;padding:9px 12px;margin:0 0 8px;font-size:14px;cursor:pointer}
+.qhelp{display:flex;gap:12px;flex-wrap:wrap;font-size:13px;background:#f0fdfa;border-radius:10px;padding:8px 12px;margin-bottom:10px}
 .tri button{border:1px solid #d1d5db;background:#fff;border-radius:10px;padding:8px 4px;cursor:pointer;font-size:14px;font-weight:600}
 .tri button.on[data-v=y],.tri button.on[data-v=neg]{background:var(--green);border-color:var(--green);color:#fff}
 .tri button.on[data-v=n],.tri button.on[data-v=pos]{background:var(--red);border-color:var(--red);color:#fff}
@@ -196,34 +199,42 @@ const CONFIG = {
 };
 /* ====================== แบบตรวจ (แก้ไขข้อความ/เพิ่มข้อได้ที่นี่) ====================== */
 const CHECK = [
-  {id:'drug', no:'2.1', title:'หมวดยา', icon:'💊', items:[
-    {id:'d1', s:'ขายเฉพาะยาสามัญประจำบ้าน', label:'จำหน่ายเฉพาะ "ยาสามัญประจำบ้าน" (สังเกตกรอบสีเขียว ข้อความ "ยาสามัญประจำบ้าน" บนฉลาก)'},
-    {id:'d2', s:'ไม่พบยาชุด', label:'ไม่พบยาชุด', crit:true},
-    {id:'d3', s:'ไม่พบยาซองใสแก้ปวดเมื่อย', label:'ไม่พบยาซองใสแก้ปวดเมื่อย', crit:true},
-    {id:'d4', s:'ไม่พบยาปฏิชีวนะ', label:'ไม่พบยาปฏิชีวนะ (แอมพิซิลลิน, อะม็อกซีซิลลิน, เตตราไซคลิน)', crit:true},
-    {id:'d5', s:'ไม่พบยาแก้แพ้/ลดน้ำมูกฤทธิ์แรง', label:'ไม่พบยาแก้แพ้/ลดน้ำมูกชนิดออกฤทธิ์แรง', crit:true},
-    {id:'d6', s:'ไม่พบยาปนเปื้อนสเตียรอยด์', label:'ไม่พบยาที่มีสารสเตียรอยด์ปนเปื้อน', crit:true},
-    {id:'d7', s:'แยกตู้/ชั้นวางยาชัดเจน', label:'แยกตู้/ชั้นวางยาสามัญประจำบ้านออกจากสินค้าอื่นอย่างชัดเจน'}]},
-  {id:'food', no:'2.2', title:'หมวดอาหารและเครื่องดื่ม', icon:'🥫', tests:true, items:[
-    {id:'f1', s:'เลข อย. 13 หลักครบถ้วน', label:'ฉลากมีเลขสารบบอาหาร (เลข อย.) 13 หลัก ครบถ้วน ถูกต้อง ชัดเจน'},
-    {id:'f2', s:'ไม่มีสินค้าหมดอายุ', label:'ไม่มีสินค้าหมดอายุวางปนจำหน่าย (ตรวจวันผลิต/วันหมดอายุ EXP / BBF)', crit:true},
-    {id:'f3', s:'บรรจุภัณฑ์สภาพดี', label:'สภาพบรรจุภัณฑ์ดี: กระป๋องไม่บวม ไม่บุบ ไม่เป็นสนิม ซีลปิดสนิท ไม่มีรอยฉีกขาดหรือรูมดเจาะ'}]},
-  {id:'cos', no:'2.3', title:'หมวดเครื่องสำอาง', icon:'💄', items:[
-    {id:'c1', s:'มีเลขที่ใบรับจดแจ้ง', label:'มีเลขที่ใบรับจดแจ้ง (10 หรือ 13 หลัก) ชัดเจน'},
-    {id:'c2', s:'ฉลากภาษาไทยครบถ้วน', label:'มีฉลากภาษาไทย ระบุชื่อผู้ผลิต/ผู้นำเข้า ครั้งที่ผลิต ส่วนประกอบครบถ้วน'},
-    {id:'c3', s:'ไม่พบเครื่องสำอางอันตราย', label:'ไม่พบเครื่องสำอางอันตราย เช่น ครีมกวนเอง ครีมหน้าขาว-หน้าเงาไร้ฉลาก ผลิตภัณฑ์เสี่ยงผสมสารปรอท สเตียรอยด์ ไฮโดรควิโนน', crit:true}]},
-  {id:'haz', no:'2.4', title:'หมวดวัตถุอันตรายที่ใช้ในบ้านเรือน', icon:'🧴', items:[
-    {id:'h1', s:'มีเลขทะเบียน อย./วอส.', label:'ผลิตภัณฑ์กำจัดแมลง ยากันยุง น้ำยาล้างห้องน้ำ น้ำยาซักฟอก มีเลขทะเบียน อย./วอส.'},
-    {id:'h2', s:'วางแยกจากอาหาร/ขนมเด็ก', label:'วางแยกพื้นที่ออกจากหมวดอาหาร เครื่องดื่ม และขนมเด็กอย่างชัดเจน'}]},
+  {id:'drug', skip:'ร้านนี้ไม่ขายยาเลย', no:'2.1', title:'หมวดยา', icon:'💊', items:[
+    {id:'d1',q:"ยาที่ขายในร้านเป็น “ยาสามัญประจำบ้าน” ทั้งหมด (ฉลากมีกรอบสีเขียว เขียนว่า “ยาสามัญประจำบ้าน”)", ok:"ใช่ ทั้งหมด", ng:"มียาอื่นปน",  s:'ขายเฉพาะยาสามัญประจำบ้าน', label:'จำหน่ายเฉพาะ "ยาสามัญประจำบ้าน" (สังเกตกรอบสีเขียว ข้อความ "ยาสามัญประจำบ้าน" บนฉลาก)'},
+    {id:'d2',q:"พบ “ยาชุด” ในร้านหรือไม่", ok:"ไม่พบ", ng:"พบ",  s:'ไม่พบยาชุด', label:'ไม่พบยาชุด', crit:true},
+    {id:'d3',q:"พบ “ยาซองใสแก้ปวดเมื่อย” ในร้านหรือไม่", ok:"ไม่พบ", ng:"พบ",  s:'ไม่พบยาซองใสแก้ปวดเมื่อย', label:'ไม่พบยาซองใสแก้ปวดเมื่อย', crit:true},
+    {id:'d4',q:"พบยาปฏิชีวนะ (แอมพิซิลลิน อะม็อกซีซิลลิน เตตราไซคลิน) ในร้านหรือไม่", ok:"ไม่พบ", ng:"พบ",  s:'ไม่พบยาปฏิชีวนะ', label:'ไม่พบยาปฏิชีวนะ (แอมพิซิลลิน, อะม็อกซีซิลลิน, เตตราไซคลิน)', crit:true},
+    {id:'d5',q:"พบยาแก้แพ้/ลดน้ำมูกชนิดออกฤทธิ์แรง ในร้านหรือไม่", ok:"ไม่พบ", ng:"พบ",  s:'ไม่พบยาแก้แพ้/ลดน้ำมูกฤทธิ์แรง', label:'ไม่พบยาแก้แพ้/ลดน้ำมูกชนิดออกฤทธิ์แรง', crit:true},
+    {id:'d6',q:"พบยาที่สงสัยมีสเตียรอยด์ปน (เช่น ยาลูกกลอน/ยาน้ำสมุนไพรไม่มีทะเบียน) หรือไม่", ok:"ไม่พบ", ng:"พบ",  s:'ไม่พบยาปนเปื้อนสเตียรอยด์', label:'ไม่พบยาที่มีสารสเตียรอยด์ปนเปื้อน', crit:true},
+    {id:'d7',q:"วางยาสามัญประจำบ้านแยกตู้/ชั้น ออกจากสินค้าอื่นชัดเจน", ok:"แยกแล้ว", ng:"ไม่แยก",  s:'แยกตู้/ชั้นวางยาชัดเจน', label:'แยกตู้/ชั้นวางยาสามัญประจำบ้านออกจากสินค้าอื่นอย่างชัดเจน'}]},
+  {id:'food', skip:'ร้านนี้ไม่ขายอาหาร/เครื่องดื่มบรรจุ', no:'2.2', title:'หมวดอาหารและเครื่องดื่ม', icon:'🥫', tests:true, items:[
+    {id:'f1',q:"ฉลากอาหารมีเลข อย. 13 หลัก ครบถ้วน ชัดเจน", ok:"มีครบ", ng:"ไม่มี/ไม่ครบ",  s:'เลข อย. 13 หลักครบถ้วน', label:'ฉลากมีเลขสารบบอาหาร (เลข อย.) 13 หลัก ครบถ้วน ถูกต้อง ชัดเจน'},
+    {id:'f2',q:"พบสินค้าหมดอายุวางขายปนอยู่หรือไม่ (ดูวันที่ EXP / BBF)", ok:"ไม่พบ", ng:"พบ",  s:'ไม่มีสินค้าหมดอายุ', label:'ไม่มีสินค้าหมดอายุวางปนจำหน่าย (ตรวจวันผลิต/วันหมดอายุ EXP / BBF)', crit:true},
+    {id:'f3',q:"บรรจุภัณฑ์อยู่ในสภาพดี (กระป๋องไม่บวม ไม่บุบ ไม่เป็นสนิม ซีลสนิท ไม่ฉีกขาด)", ok:"สภาพดี", ng:"พบชำรุด",  s:'บรรจุภัณฑ์สภาพดี', label:'สภาพบรรจุภัณฑ์ดี: กระป๋องไม่บวม ไม่บุบ ไม่เป็นสนิม ซีลปิดสนิท ไม่มีรอยฉีกขาดหรือรูมดเจาะ'}]},
+  {id:'cos', skip:'ร้านนี้ไม่ขายเครื่องสำอาง', no:'2.3', title:'หมวดเครื่องสำอาง', icon:'💄', items:[
+    {id:'c1',q:"เครื่องสำอางมีเลขที่ใบรับจดแจ้ง (10 หรือ 13 หลัก) ชัดเจน", ok:"มีครบ", ng:"ไม่มี/ไม่ครบ",  s:'มีเลขที่ใบรับจดแจ้ง', label:'มีเลขที่ใบรับจดแจ้ง (10 หรือ 13 หลัก) ชัดเจน'},
+    {id:'c2',q:"มีฉลากภาษาไทย ระบุผู้ผลิต/ผู้นำเข้า ครั้งที่ผลิต ส่วนประกอบ ครบถ้วน", ok:"ครบถ้วน", ng:"ไม่ครบ",  s:'ฉลากภาษาไทยครบถ้วน', label:'มีฉลากภาษาไทย ระบุชื่อผู้ผลิต/ผู้นำเข้า ครั้งที่ผลิต ส่วนประกอบครบถ้วน'},
+    {id:'c3',q:"พบเครื่องสำอางอันตรายหรือไม่ (ครีมกวนเอง ครีมไม่มีฉลาก สงสัยผสมปรอท/สเตียรอยด์/ไฮโดรควิโนน)", ok:"ไม่พบ", ng:"พบ",  s:'ไม่พบเครื่องสำอางอันตราย', label:'ไม่พบเครื่องสำอางอันตราย เช่น ครีมกวนเอง ครีมหน้าขาว-หน้าเงาไร้ฉลาก ผลิตภัณฑ์เสี่ยงผสมสารปรอท สเตียรอยด์ ไฮโดรควิโนน', crit:true}]},
+  {id:'haz', skip:'ร้านนี้ไม่ขายวัตถุอันตรายในบ้านเรือน', no:'2.4', title:'หมวดวัตถุอันตรายที่ใช้ในบ้านเรือน', icon:'🧴', items:[
+    {id:'h1',q:"ยากันยุง ยาฆ่าแมลง น้ำยาล้างห้องน้ำ ผงซักฟอก มีเลขทะเบียน อย./วอส.", ok:"มีครบ", ng:"ไม่มี/ไม่ครบ",  s:'มีเลขทะเบียน อย./วอส.', label:'ผลิตภัณฑ์กำจัดแมลง ยากันยุง น้ำยาล้างห้องน้ำ น้ำยาซักฟอก มีเลขทะเบียน อย./วอส.'},
+    {id:'h2',q:"วางแยกจากอาหาร เครื่องดื่ม และขนมเด็ก ชัดเจน", ok:"แยกแล้ว", ng:"ไม่แยก",  s:'วางแยกจากอาหาร/ขนมเด็ก', label:'วางแยกพื้นที่ออกจากหมวดอาหาร เครื่องดื่ม และขนมเด็กอย่างชัดเจน'}]},
   {id:'env', no:'3', title:'สภาพแวดล้อมและสุขวิทยาสถานที่', icon:'🧹', items:[
-    {id:'s1', s:'แยกหมวดหมู่สินค้าชัดเจน', label:'3.1 แยกหมวดหมู่อาหาร ของใช้ สารเคมี ชัดเจน'},
-    {id:'s2', s:'วางสูงจากพื้น ≥15 ซม.', label:'3.1 วางสินค้าสูงจากพื้นอย่างน้อย 15 ซม.'},
-    {id:'s3', s:'ไม่ติดผนัง/ไม่ถูกแดดส่อง', label:'3.1 ไม่วางติดผนัง และไม่ถูกแดดส่องถึงโดยตรง'},
-    {id:'s4', s:'พื้น/ชั้นวางสะอาด', label:'3.2 พื้นและชั้นวางสะอาด ไม่มีฝุ่นหนา'},
-    {id:'s5', s:'ไม่มีร่องรอยหนู/แมลงสาบ/สัตว์', label:'3.2 ไม่มีมูลหรือร่องรอยของหนู แมลงสาบ และสัตว์เลี้ยงในบริเวณจำหน่าย'},
-    {id:'s6', s:'ตู้แช่ทำงานปกติ อุณหภูมิเหมาะสม', label:'3.3 ตู้แช่เครื่องดื่มและอาหารสดทำงานปกติ อุณหภูมิเหมาะสม'},
-    {id:'s7', s:'ไม่วางของแน่นตู้แช่', label:'3.3 ไม่วางของแน่นจนลมเย็นไม่หมุนเวียน'}]}
+    {id:'s1',q:"จัดวางแยกหมวด อาหาร / ของใช้ / สารเคมี ชัดเจน", ok:"แยกแล้ว", ng:"ไม่แยก",  s:'แยกหมวดหมู่สินค้าชัดเจน', label:'3.1 แยกหมวดหมู่อาหาร ของใช้ สารเคมี ชัดเจน'},
+    {id:'s2',q:"วางสินค้าสูงจากพื้นอย่างน้อย 15 ซม.", ok:"ใช่", ng:"วางติดพื้น",  s:'วางสูงจากพื้น ≥15 ซม.', label:'3.1 วางสินค้าสูงจากพื้นอย่างน้อย 15 ซม.'},
+    {id:'s3',q:"ไม่วางสินค้าติดผนัง และไม่โดนแดดส่องโดยตรง", ok:"ใช่", ng:"ติดผนัง/โดนแดด",  s:'ไม่ติดผนัง/ไม่ถูกแดดส่อง', label:'3.1 ไม่วางติดผนัง และไม่ถูกแดดส่องถึงโดยตรง'},
+    {id:'s4',q:"พื้นและชั้นวางสะอาด ไม่มีฝุ่นหนา", ok:"สะอาด", ng:"ไม่สะอาด",  s:'พื้น/ชั้นวางสะอาด', label:'3.2 พื้นและชั้นวางสะอาด ไม่มีฝุ่นหนา'},
+    {id:'s5',q:"พบมูลหรือร่องรอยหนู แมลงสาบ หรือสัตว์เลี้ยง ในบริเวณขายหรือไม่", ok:"ไม่พบ", ng:"พบ",  s:'ไม่มีร่องรอยหนู/แมลงสาบ/สัตว์', label:'3.2 ไม่มีมูลหรือร่องรอยของหนู แมลงสาบ และสัตว์เลี้ยงในบริเวณจำหน่าย'},
+    {id:'s6',q:"ตู้แช่เครื่องดื่ม/อาหารสด ทำงานปกติ เย็นพอ", ok:"ปกติ", ng:"ผิดปกติ", na:"ไม่มีตู้แช่",  s:'ตู้แช่ทำงานปกติ อุณหภูมิเหมาะสม', label:'3.3 ตู้แช่เครื่องดื่มและอาหารสดทำงานปกติ อุณหภูมิเหมาะสม'},
+    {id:'s7',q:"ของในตู้แช่ไม่แน่นจนลมเย็นไม่หมุนเวียน", ok:"ไม่แน่น", ng:"แน่นเกินไป", na:"ไม่มีตู้แช่",  s:'ไม่วางของแน่นตู้แช่', label:'3.3 ไม่วางของแน่นจนลมเย็นไม่หมุนเวียน'}]}
 ];
+/* คำถามแบบตอบชัดเจน: ✓ = ปลอดภัย/ถูกต้อง  ✗ = พบปัญหา  (ไม่ขายสินค้าหมวดนี้ → ติ๊ก “ข้ามหมวดนี้”) */
+function qItem(it,v){return `<div class="item" data-qi="${it.id}"><div class="lbl">${esc(it.q||it.label)}${it.crit?' <span class="crit">ข้อสำคัญ</span>':''}</div>
+  <div class="tri ${it.na?'':'tri2'}" data-item="${it.id}"><button type="button" data-v="y" class="${v==='y'?'on':''}">✓ ${esc(it.ok||'ผ่าน')}</button><button type="button" data-v="n" class="${v==='n'?'on':''}">✗ ${esc(it.ng||'ไม่ผ่าน')}</button>${it.na?`<button type="button" data-v="na" class="${v==='na'?'on':''}">${esc(it.na)}</button>`:''}</div></div>`}
+function secSkipped(sec,ans){return !!sec.skip&&sec.items.every(it=>ans[it.id]==='na')}
+function secSkipBox(sec,ans){return sec.skip?`<label class="skipbox"><input type="checkbox" data-skip="${sec.id}" ${secSkipped(sec,ans)?'checked':''}> 🚫 ${esc(sec.skip)} — ข้ามหมวดนี้</label>`:''}
+function onSkip(cb,ans,root){const sec=CHECK.find(x=>x.id===cb.dataset.skip);sec.items.forEach(it=>{if(cb.checked)ans[it.id]='na';else delete ans[it.id]});
+  const box=root.querySelector(`[data-secbody="${sec.id}"]`);if(box)box.hidden=cb.checked;
+  sec.items.forEach(it=>$$(`.tri[data-item="${it.id}"] button`,root).forEach(b=>b.classList.toggle('on',b.dataset.v===ans[it.id])))}
 const TESTS = [
   {id:'borax', name:'สารบอแรกซ์', hint:'ลูกชิ้น, หมูยอ'},
   {id:'bleach', name:'สารฟอกขาว', hint:'ถั่วงอก, หน่อไม้ดอง'},
@@ -521,7 +532,7 @@ function refreshMarkers(fit){if(!MAIN)return;
   MAIN.setMarkers(list);if(fit&&list.length)MAIN.fit(list.map(x=>[x.lat,x.lng]))}
 
 /* ====================== router ====================== */
-const NAVMAP={store:'list',edit:'list',inspect:'list',report:'list'};
+const NAVMAP={store:'list',edit:'list',inspect:'list',report:'list',inbox:'list',unitqr:'settings',users:'settings'};
 window.addEventListener('hashchange',route);
 function setHeader(title,sub,back){$('#title').textContent=title;$('#subtitle').textContent=sub||'';$('#backBtn').hidden=!back}
 function route(){
@@ -546,6 +557,7 @@ function route(){
     case 'dash':viewDash();break;
     case 'settings':viewSettings();break;
     case 'mail':viewMail(a);break;
+    case 'unitqr':if(canEdit()||isAdmin())viewUnitQR();else location.hash='#map';break;
     case 'users':if(isAdmin()||me().role==='staff')viewUsers();else location.hash='#settings';break;
     default:location.hash='#map';
   }
@@ -572,7 +584,7 @@ function viewList(){
       ${isSuper()?`<select class="i" id="fu"><option value="">ทุกหน่วยบริการ</option>${unitOpts(LF.unit)}<option value="-" ${LF.unit==='-'?'selected':''}>(ยังไม่ระบุหน่วย)</option></select>`:''}
     </div>
     ${S.selfPending&&['superadmin','unitadmin','staff'].includes(me().role)?`<a class="note" href="#inbox" style="display:block;text-decoration:none;color:inherit">📥 <b>ข้อมูลจากร้านค้ารอตรวจรับ ${S.selfPending} รายการ</b> — แตะเพื่อตรวจรับ</a>`:''}
-    <div class="row" style="margin-bottom:10px"><a class="btn sm" href="#inbox">📥 ข้อมูลจากร้านค้า</a>${canEdit()&&me().unitId?'<button class="btn sm" data-unitlink>🔗 QR ลงทะเบียนร้านใหม่</button>':''}</div>
+    <div class="row" style="margin-bottom:10px"><a class="btn sm" href="#inbox">📥 ข้อมูลจากร้านค้า</a>${canEdit()&&(me().unitId||isSuper())?'<a class="btn sm" href="#unitqr">📱 QR สำรวจร้านค้า</a>':''}</div>
     <div id="items"></div>`;
   const draw=()=>{const q=LF.q.toLowerCase();
     const arr=S.stores.filter(s=>(!LF.st||(LF.st==='closed'?!!s.closed:!s.closed))&&(!LF.unit||(LF.unit==='-'?!s.unitId:s.unitId===LF.unit))&&(!LF.vil||s.village===LF.vil)&&(!LF.type||s.type===LF.type)&&(!LF.lv||levelOf(s.id)===LF.lv)&&
@@ -742,17 +754,16 @@ function viewInspect(storeId,inspId){
   F.answers=F.answers||{};F.tests=F.tests||{};F.notes=F.notes||{};F.sources=F.sources||[];F.photos=F.photos||[];
   if(!prev&&!F.prevImprove)F.prevImprove='first';
   setHeader(old?'แก้ไขผลการตรวจ':'ตรวจประเมินร้านค้า',st.name,true);
-  const tri=(id,v)=>['y','n','na'].map(k=>`<button type="button" data-v="${k}" class="${v===k?'on':''}">${k==='y'?'✓ ผ่าน':k==='n'?'✗ ไม่ผ่าน':'ไม่มี'}</button>`).join('');
   const secHtml=sec=>`<section class="card" data-sec="${sec.id}">
       <div class="sec-h"><h3>${sec.no} ${sec.icon} ${sec.title}</h3>
-        <button class="btn sm" data-all="${sec.id}" data-val="y">✓ ผ่านทั้งหมด</button>
-        ${sec.id!=='env'?`<button class="btn sm" data-all="${sec.id}" data-val="na">ไม่มีจำหน่าย</button>`:''}</div>
-      ${sec.items.map(it=>`<div class="item"><div class="lbl">${esc(it.label)}${it.crit?'<span class="crit">ข้อสำคัญ</span>':''}</div><div class="tri" data-item="${it.id}">${tri(it.id,F.answers[it.id])}</div></div>`).join('')}
+        <button class="btn sm" data-all="${sec.id}" data-val="y">✓ เรียบร้อยทุกข้อ</button></div>
+      ${secSkipBox(sec,F.answers)}<div data-secbody="${sec.id}" ${secSkipped(sec,F.answers)?'hidden':''}>
+      ${sec.items.map(it=>qItem(it,F.answers[it.id])).join('')}
       ${sec.tests?`<div class="item"><div class="lbl"><b>การปนเปื้อนสารอันตราย</b> — สุ่มตรวจด้วยชุดทดสอบภาคสนาม (Test Kit)</div>
         ${TESTS.map(t=>{const x=F.tests[t.id]||{};return `<div style="margin:8px 0 12px"><div class="small"><b>${t.name}</b> <span class="muted">(${t.hint})</span></div>
           <div class="tri" data-test="${t.id}"><button type="button" data-v="" class="${!x.r?'on':''}">ไม่ได้ตรวจ</button><button type="button" data-v="neg" class="${x.r==='neg'?'on':''}">ไม่พบ</button><button type="button" data-v="pos" class="${x.r==='pos'?'on':''}">พบ ⚠</button></div>
           <input class="i" style="margin-top:6px;padding:7px 10px" data-sample="${t.id}" placeholder="ตัวอย่างที่ตรวจ เช่น ${t.hint.split(',')[0]}" value="${esc(x.sample||'')}"></div>`}).join('')}</div>`:''}
-      <textarea class="i" data-note="${sec.id}" placeholder="บันทึกสิ่งที่พบเพิ่มเติม (ถ้ามี)">${esc(F.notes[sec.id]||'')}</textarea>
+      </div><textarea class="i" data-note="${sec.id}" placeholder="บันทึกสิ่งที่พบเพิ่มเติม (ถ้ามี)">${esc(F.notes[sec.id]||'')}</textarea>
     </section>`;
   const pr=prev&&prev.result;
   $('#view').innerHTML=`
@@ -762,6 +773,7 @@ function viewInspect(storeId,inspId){
       <div class="small muted">ร้าน: <b>${esc(st.name)}</b> · ${esc(st.village||'')} · ${esc(st.type||'')}</div>
     </div>
     <h3 style="margin:16px 4px 8px">2. การตรวจสอบผลิตภัณฑ์สุขภาพ</h3>
+    <div class="qhelp"><span><b style="color:#15803d">✓ สีเขียว</b> = ถูกต้อง/ปลอดภัย</span><span><b style="color:#b91c1c">✗ สีแดง</b> = พบปัญหา</span><span>ร้านไม่ขายสินค้าหมวดใด ให้ติ๊ก <b>🚫 ข้ามหมวดนี้</b></span></div>
     ${CHECK.filter(s=>s.id!=='env').map(secHtml).join('')}
     <h3 style="margin:16px 4px 8px">3. สภาพแวดล้อมและสุขวิทยาสถานที่</h3>
     ${secHtml(CHECK.find(s=>s.id==='env'))}
@@ -811,13 +823,14 @@ function viewInspect(storeId,inspId){
   const drawPh=()=>{$('#iph').innerHTML=F.photos.map((p,k)=>`<div class="ph"><img referrerpolicy="no-referrer" src="${imgSrc(p)}"><button class="x" data-rm="${k}">×</button></div>`).join('')+(F.photos.length<6?photoBtns():'')};
   upd();drawPh();
   v.onclick=async e=>{
+    if(e.target.dataset&&e.target.dataset.skip){onSkip(e.target,F.answers,v);upd();return}
     const tb=e.target.closest('.tri button');
     if(tb){const g=tb.parentElement;$$('button',g).forEach(x=>x.classList.toggle('on',x===tb));
       if(g.dataset.item)F.answers[g.dataset.item]=tb.dataset.v;
       if(g.dataset.test){F.tests[g.dataset.test]=Object.assign(F.tests[g.dataset.test]||{},{r:tb.dataset.v})}
       upd();return}
     const all=e.target.closest('[data-all]');
-    if(all){const sec=CHECK.find(s=>s.id===all.dataset.all);sec.items.forEach(it=>F.answers[it.id]=all.dataset.val);
+    if(all){const sec=CHECK.find(s=>s.id===all.dataset.all);sec.items.forEach(it=>F.answers[it.id]=all.dataset.val);const sk=$(`[data-skip="${sec.id}"]`,v);if(sk){sk.checked=false;$(`[data-secbody="${sec.id}"]`,v).hidden=false}
       $$(`[data-sec="${sec.id}"] .tri[data-item] button`).forEach(x=>x.classList.toggle('on',x.dataset.v===all.dataset.val));upd();return}
     const rm=e.target.closest('[data-rm]');if(rm){F.photos.splice(+rm.dataset.rm,1);drawPh();return}
     const b=e.target.closest('[data-act]');if(!b)return;
@@ -1172,19 +1185,33 @@ async function viewUsers(){
 
 /* ====================== ร้านค้ากรอกข้อมูลเอง / ประเมินตนเอง (หน้าเปิดสาธารณะ) ====================== */
 const SELF_LABEL={name:'ชื่อร้าน',type:'ประเภทร้าน',kind:'ลักษณะสถานประกอบการ',owner:'เจ้าของร้าน',caretaker:'ผู้ดูแลร้าน',phone:'โทรศัพท์',address:'ที่อยู่',village:'หมู่บ้าน',moo:'หมู่ที่',license:'ทะเบียน/ใบอนุญาต',lat:'ละติจูด',lng:'ลองจิจูด',photo:'ภาพหน้าร้าน'};
-async function viewSelf(kind,key){
+let selfUnitCache=null;
+async function viewSelf(kind,key,pick){
   document.body.classList.add('authing');const v=$('#view');v.hidden=false;v.onclick=v.oninput=v.onchange=null;
   const shell=inner=>{v.innerHTML=`<div class="auth" style="align-items:flex-start"><div class="box" style="max-width:640px">
     <div class="acct" style="margin-bottom:8px"><img src="icon-192.png" style="width:44px;height:44px;border-radius:12px"><div><b style="font-size:18px">ShopStation</b><div class="small muted">สำหรับผู้ประกอบการร้านค้า</div></div></div>${inner}</div></div>`;window.scrollTo(0,0)};
   shell('<div class="empty">⏳ กำลังโหลด…</div>');
   let st={},unitN='',pending=0;
   try{ if(kind==='self'){const j=await api('selfGet',{token:key});st=j.store;unitN=j.unitName;pending=j.pending}
-       else{const j=await api('selfUnit',{unitId:key});unitN=j.unit.name;st={type:STORE_TYPES[0],kind:STORE_KINDS[0]}} }
+       else{const j=selfUnitCache&&selfUnitCache.unit.id===key?selfUnitCache:await api('selfUnit',{unitId:key});selfUnitCache=j;unitN=j.unit.name;st={type:STORE_TYPES[0],kind:STORE_KINDS[0]}} }
   catch(e){shell(`<div class="note" style="background:var(--red-l)">⚠ ${esc(e.message)}</div>`);return}
-  const isNew=kind==='selfnew';const F={answers:{},notes:{},sources:[]};let photo='';let doAssess=!isNew;
+  if(kind==='selfnew'&&!pick){   // QR ของหน่วยบริการ: เลือกว่าเป็นร้านใหม่ หรือร้านที่มีในระบบแล้ว
+    const list=selfUnitCache.stores||[];
+    shell(`<h2 style="margin:6px 0 2px">📋 สำรวจข้อมูลร้านค้า</h2>
+      <div class="small muted" style="margin-bottom:12px">หน่วยบริการ: <b>${esc(unitN)}</b></div>
+      <div class="info small">ขอความร่วมมือร้านค้ากรอกข้อมูลร้าน ถ่ายรูปหน้าร้าน ระบุตำแหน่ง และประเมินตนเองเบื้องต้น ใช้เวลาประมาณ 5 นาที ไม่ต้องสมัครสมาชิก</div>
+      <button class="btn pri block" data-pick="new" style="padding:16px;font-size:17px;margin:10px 0">🆕 ร้านของฉันยังไม่เคยลงทะเบียน</button>
+      ${list.length?`<div class="card" style="margin-top:6px"><b>🏪 ร้านของฉันเคยลงทะเบียนแล้ว</b><div class="small muted" style="margin:2px 0 8px">พิมพ์ชื่อร้านหรือหมู่บ้าน แล้วแตะชื่อร้านของคุณ</div>
+        <input class="i" id="sfind" placeholder="🔍 ค้นหาชื่อร้าน / หมู่บ้าน"><div id="slist" style="margin-top:8px"></div></div>`:''}`);
+    const draw=q=>{q=(q||'').trim().toLowerCase();const m=list.filter(x=>!q||(x.name+' '+x.village+' หมู่ '+x.moo).toLowerCase().includes(q));
+      $('#slist').innerHTML=q?(m.slice(0,30).map(x=>`<button class="btn block" style="text-align:left;margin-bottom:6px" data-pick="${esc(x.id)}">🏪 <b>${esc(x.name)}</b> <span class="small muted">${esc(x.village||'')}${x.moo?' ม.'+esc(x.moo):''}</span></button>`).join('')||'<div class="small muted">ไม่พบชื่อร้าน — ถ้าไม่เคยลงทะเบียน ให้กดปุ่ม “ยังไม่เคยลงทะเบียน” ด้านบน</div>'):'<div class="small muted">ร้านในหน่วยบริการ '+list.length+' ร้าน</div>'};
+    if(list.length){draw('');v.oninput=e=>{if(e.target.id==='sfind')draw(e.target.value)}}
+    v.onclick=e=>{const b=e.target.closest('[data-pick]');if(b)viewSelf(kind,key,b.dataset.pick)};return}
+  if(kind==='selfnew'&&pick!=='new'){const x=(selfUnitCache.stores||[]).find(z=>z.id===pick);if(!x){viewSelf(kind,key);return}st={name:x.name,village:x.village,moo:x.moo}}
+  const isNew=kind==='selfnew'&&pick==='new';const F={answers:{},notes:{},sources:[]};let photo='';let doAssess=!isNew;
   const opt=(arr,val)=>{const a=arr.includes(val)||!val?arr:[...arr,val];return a.map(x=>`<option ${x===val?'selected':''}>${esc(x)}</option>`).join('')};
-  const tri=(id)=>['y','n','na'].map(k=>`<button type="button" data-v="${k}">${k==='y'?'✓ ใช่':k==='n'?'✗ ไม่ใช่':'ไม่มีสินค้านี้'}</button>`).join('');
-  shell(`<h2 style="margin:6px 0 2px">${isNew?'📝 ลงทะเบียนร้านค้าใหม่':'🏪 '+esc(st.name)}</h2>
+  shell(`${kind==='selfnew'?'<button class="btn sm" data-a="back" style="margin-bottom:8px">‹ เปลี่ยนร้าน</button>':''}
+    <h2 style="margin:6px 0 2px">${isNew?'📝 ลงทะเบียนร้านค้าใหม่':'🏪 '+esc(st.name)}</h2>
     <div class="small muted" style="margin-bottom:10px">หน่วยบริการ: <b>${esc(shortUnit(unitN))}</b></div>
     ${pending?`<div class="info small">ร้านของคุณส่งข้อมูลไปแล้ว ${pending} รายการ กำลังรอเจ้าหน้าที่ตรวจรับ (ส่งเพิ่มได้)</div>`:''}
     <div class="info small">กรอกเฉพาะข้อมูลที่ต้องการแจ้งหรือแก้ไข ข้อมูลจะถูกส่งให้เจ้าหน้าที่ ${esc(shortUnit(unitN))} ตรวจสอบก่อนบันทึกในระบบ</div>
@@ -1207,8 +1234,9 @@ async function viewSelf(kind,key){
     <h3 style="margin:18px 0 8px">2. ประเมินตนเอง ${isNew?'(ไม่บังคับ)':''}</h3>
     <label class="opt"><input type="checkbox" id="doA" ${doAssess?'checked':''}><span>ต้องการประเมินตนเองด้วย — ช่วยให้ร้านรู้ว่าต้องปรับปรุงอะไร</span></label>
     <div id="asec" ${doAssess?'':'hidden'}>
+      <div class="qhelp" style="margin-top:10px"><span><b style="color:#15803d">✓ สีเขียว</b> = ถูกต้อง/ปลอดภัย</span><span><b style="color:#b91c1c">✗ สีแดง</b> = พบปัญหา</span><span>ไม่ขายสินค้าหมวดใด ติ๊ก <b>🚫 ข้ามหมวดนี้</b></span></div>
       ${CHECK.map(sec=>`<div class="card" style="margin-top:10px"><h3 style="margin:0 0 6px">${sec.icon} ${sec.title}</h3>
-        ${sec.items.map(it=>`<div class="item"><div class="lbl">${esc(it.label)}</div><div class="tri" data-item="${it.id}">${tri(it.id)}</div></div>`).join('')}</div>`).join('')}
+        ${secSkipBox(sec,F.answers)}<div data-secbody="${sec.id}">${sec.items.map(it=>qItem(it,F.answers[it.id])).join('')}</div></div>`).join('')}
       <div class="card" style="margin-top:10px"><h3 style="margin:0 0 6px">🚚 แหล่งที่ซื้อสินค้า</h3>
         <div class="opts">${SOURCES.map(([k,t])=>`<label class="opt"><input type="checkbox" data-src="${k}"><span>${t}</span></label>`).join('')}</div>
         <h3 style="margin:12px 0 6px">🎓 การอบรม คบส.</h3>
@@ -1223,7 +1251,9 @@ async function viewSelf(kind,key){
   let ll=null;
   v.oninput=e=>{if(e.target.dataset.f)e.target.dataset.t='1'};
   v.onchange=e=>{const t=e.target;if(t.dataset.f)t.dataset.t='1';if(t.id==='doA'){doAssess=t.checked;$('#asec').hidden=!doAssess}};
-  v.onclick=async e=>{const tb=e.target.closest('.tri button');
+  v.onclick=async e=>{if(e.target.dataset&&e.target.dataset.skip){onSkip(e.target,F.answers,v);return}
+    if(e.target.closest('[data-a=back]')){viewSelf(kind,key);return}
+    const tb=e.target.closest('.tri button');
     if(tb){const g=tb.parentElement;$$('button',g).forEach(x=>x.classList.toggle('on',x===tb));F.answers[g.dataset.item]=tb.dataset.v;return}
     const b=e.target.closest('[data-act],[data-a]');if(!b)return;const a=b.dataset.act||b.dataset.a;
     if(a==='cam'||a==='gal'){const d=await pickImage(a==='cam'?'camera':'gallery');if(d){photo=d;drawPh()}}
@@ -1237,13 +1267,13 @@ async function viewSelf(kind,key){
         if(Object.keys(F.answers).length)assessment={answers:F.answers,sources:F.sources,training:F.training,comment:F.comment,notes:{}}}
       if(!Object.keys(info).length&&!assessment&&!photo){toast('ยังไม่มีข้อมูลที่จะส่ง');return}
       b.disabled=true;b.textContent='⏳ กำลังส่ง…';
-      try{await api('selfSubmit',{[isNew?'unitId':'token']:key,info,assessment,photo:photo?photo.split(',')[1]:'',contactName:$('#scn').value.trim(),contactPhone:$('#scp').value.trim()});
+      try{await api('selfSubmit',{...(kind==='self'?{token:key}:isNew?{unitId:key}:{unitId:key,storeId:pick}),info,assessment,photo:photo?photo.split(',')[1]:'',contactName:$('#scn').value.trim(),contactPhone:$('#scp').value.trim()});
         const r=assessment?evaluate({answers:F.answers,tests:{},sources:F.sources,training:F.training}):null;
         const fails=r?r.fails.map(fid=>ALL_ITEMS.find(x=>x.id===fid)).filter(Boolean):[];
         shell(`<div style="text-align:center;padding:10px 0"><div style="font-size:52px">✅</div><h2 style="margin:6px 0">ส่งข้อมูลเรียบร้อย</h2><p class="muted">เจ้าหน้าที่ ${esc(shortUnit(unitN))} จะตรวจสอบข้อมูล ขอบคุณที่ร่วมดูแลความปลอดภัยของผู้บริโภคในชุมชน</p></div>
           ${r&&r.pct!=null?`<div class="res b-${r.level}" style="margin-bottom:12px"><b>ผลประเมินตนเอง: ${r.pct}%</b>${r.label} (ผ่าน ${r.pass} · ไม่ผ่าน ${r.fail})</div>`:''}
           ${fails.length?`<div class="card"><h3>💡 สิ่งที่ร้านควรปรับปรุง</h3><ul class="tight">${fails.map(it=>`<li>${esc(recFor(it))}</li>`).join('')}</ul></div>`:r?'<div class="info">เยี่ยมมาก! ร้านของคุณผ่านทุกข้อที่ประเมิน</div>':''}
-          ${kind==='self'?'<button class="btn block" onclick="location.reload()">กลับไปหน้าร้าน</button>':''}`)}
+          ${kind==='self'?'<button class="btn block" onclick="location.reload()">กลับไปหน้าร้าน</button>':'<button class="btn block" onclick="location.reload()">📝 ส่งข้อมูลร้านอื่นต่อ</button>'}`)}
       catch(err){toast(err.message,4500);b.disabled=false;b.textContent='📤 ส่งข้อมูลให้เจ้าหน้าที่'}}};
 }
 
@@ -1271,9 +1301,49 @@ async function storeSelfLink(s){
     showLink('ลิงก์ร้าน '+s.name,j.url,'ส่งลิงก์หรือให้ร้านสแกน QR เพื่อกรอกข้อมูลร้านและประเมินตนเอง (ไม่ต้องสมัครสมาชิก) — ข้อมูลจะเข้ากล่อง “ข้อมูลจากร้านค้า” ให้เจ้าหน้าที่ตรวจรับก่อน')}
   catch(e){toast(e.message,4500)}
 }
-function unitSelfLink(){const uid=me().unitId;if(!uid){toast('บัญชีนี้ไม่ได้สังกัดหน่วยบริการ');return}
-  const base=location.href.split('#')[0].split('?')[0];
-  showLink('ลงทะเบียนร้านค้าใหม่ — '+myUnitName(),base+'#selfnew/'+uid,'ลิงก์/QR ประจำหน่วยบริการ ให้ร้านค้าใหม่ในพื้นที่ลงทะเบียนเอง ติดไว้ที่ รพ.สต. หรือส่งในกลุ่ม LINE หมู่บ้านได้')}
+/* ====================== QR ประจำหน่วยบริการ (สำรวจร้านค้า) ====================== */
+function unitSelfLink(){location.hash='#unitqr'}
+const selfBase=()=>location.href.split('#')[0].split('?')[0];
+async function viewUnitQR(){
+  setHeader('📱 QR สำรวจร้านค้า','ของหน่วยบริการ',true);const v=$('#view');
+  let uid=S.qrUnit||me().unitId||'';
+  if(!isSuper()&&!me().unitId){v.innerHTML='<div class="empty">บัญชีนี้ยังไม่ได้สังกัดหน่วยบริการ</div>';return}
+  const units=(S.units||[]).slice().sort((a,b)=>String(a.code||'').localeCompare(String(b.code||'')));
+  if(!uid&&units.length)uid=units[0].id;
+  const draw=async()=>{const url=selfBase()+'#selfnew/'+uid;const un=unitFull(uid);
+    v.innerHTML=`${isSuper()?`<label class="f"><span>หน่วยบริการ</span><select class="i" id="qu">${units.map(u=>`<option value="${u.id}" ${u.id===uid?'selected':''}>${esc((u.code?u.code+' ':'')+u.name)}</option>`).join('')}</select></label>`:''}
+      <div class="card" style="text-align:center"><b style="font-size:17px">${esc(un)}</b><div class="small muted">QR สำรวจข้อมูลร้านค้า — ร้านสแกนแล้วกรอกเองได้ทันที</div>
+        <div id="qrbig" style="margin:14px auto;min-height:220px"></div>
+        <input class="i" readonly value="${esc(url)}" style="font-size:12px;text-align:center"></div>
+      <div class="btns" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button class="btn pri" data-q="share">📤 แชร์ (LINE ฯลฯ)</button><button class="btn" data-q="copy">📋 คัดลอกลิงก์</button>
+        <button class="btn" data-q="print">🖨 พิมพ์โปสเตอร์ A4</button><button class="btn" data-q="dl">⬇ บันทึกรูป QR</button>
+        <button class="btn" data-q="open" style="grid-column:1/-1">👀 ลองเปิดดูหน้าที่ร้านจะเห็น</button></div>
+      <div class="card small" style="margin-top:12px"><b>ร้านค้าทำอะไรได้บ้างผ่าน QR นี้</b><ul class="tight">
+        <li>🆕 ร้านใหม่ลงทะเบียนเอง หรือ 🏪 ร้านที่มีในระบบแล้วค้นชื่อร้านตัวเองเพื่อแก้ไขข้อมูล</li>
+        <li>กรอกข้อมูลทั่วไป ถ่ายรูปหน้าร้าน และกดบันทึกพิกัด GPS ขณะอยู่ที่ร้าน</li>
+        <li>ประเมินตนเองเบื้องต้น แล้วเห็นคำแนะนำสิ่งที่ควรปรับปรุงทันที</li>
+        <li>ข้อมูลเข้ากล่อง <a href="#inbox">📥 ข้อมูลจากร้านค้า</a> ให้เจ้าหน้าที่ตรวจรับก่อนบันทึกจริง และแจ้งเตือนเข้า 📬 ข้อความ</li></ul>
+        <b>วิธีใช้:</b> ส่งลิงก์ในกลุ่ม LINE หมู่บ้าน/กลุ่ม อสม. หรือพิมพ์โปสเตอร์ติดที่ รพ.สต. ให้ อสม. ถือไปให้ร้านสแกนระหว่างลงพื้นที่</div>`;
+    let dataUrl='';
+    try{await loadQR();const q=qrcode(0,'M');q.addData(url);q.make();dataUrl=q.createDataURL(8,16);$('#qrbig').innerHTML=`<img src="${dataUrl}" style="width:240px;max-width:80%;image-rendering:pixelated">`}
+    catch(e){$('#qrbig').innerHTML='<div class="small muted" style="padding-top:90px">สร้าง QR ไม่ได้ (ไม่มีอินเทอร์เน็ต) — ใช้ลิงก์ด้านล่างแทน</div>'}
+    v.onchange=e=>{if(e.target.id==='qu'){uid=S.qrUnit=e.target.value;draw()}};
+    v.onclick=async e=>{const b=e.target.closest('[data-q]');if(!b)return;const k=b.dataset.q,title='สำรวจข้อมูลร้านค้า — '+un;
+      if(k==='copy'){try{await navigator.clipboard.writeText(url);toast('คัดลอกแล้ว ✓')}catch(err){$('input[readonly]',v).select();toast('กดค้างที่ลิงก์เพื่อคัดลอก')}}
+      else if(k==='share'){const text=`ขอความร่วมมือร้านค้าในพื้นที่ ${shortUnit(un)} กรอกข้อมูลร้านและประเมินตนเอง (ไม่ต้องสมัคร ใช้เวลา 5 นาที)\n`;
+        if(navigator.share){try{await navigator.share({title,text,url})}catch(err){}}else window.open('https://line.me/R/msg/text/?'+encodeURIComponent(text+url),'_blank')}
+      else if(k==='open')window.open(url,'_blank');
+      else if(k==='dl'){if(!dataUrl){toast('ไม่มี QR');return}const a=document.createElement('a');a.href=dataUrl;a.download='QR_สำรวจร้านค้า_'+shortUnit(un).replace(/\s+/g,'_')+'.gif';a.click()}
+      else if(k==='print'){if(!dataUrl){toast('ไม่มี QR');return}const w=window.open('','_blank');if(!w){toast('เบราว์เซอร์บล็อกหน้าต่างใหม่');return}
+        w.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>${esc(title)}</title><link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700;800&display=swap" rel="stylesheet">
+          <style>@page{size:A4;margin:14mm}body{font-family:Sarabun,sans-serif;text-align:center;color:#111;margin:0}h1{font-size:34px;margin:6px 0;color:#0f766e}h2{font-size:22px;margin:4px 0 14px}
+          img{width:105mm;height:105mm;image-rendering:pixelated;border:3px solid #0f766e;border-radius:14px;padding:8px}ol{text-align:left;font-size:19px;line-height:1.7;max-width:150mm;margin:16px auto}.u{font-size:13px;color:#555;word-break:break-all}.top{font-size:18px;font-weight:700;background:#0f766e;color:#fff;border-radius:12px;padding:8px}</style></head>
+          <body><div class="top">ShopStation · ร้านค้าปลอดภัย ผู้บริโภคมั่นใจ</div><h1>📋 สำรวจข้อมูลร้านค้า</h1><h2>${esc(un)}</h2><img src="${dataUrl}">
+          <ol><li>เปิดกล้องมือถือ หรือ LINE แล้ว <b>สแกน QR</b></li><li>เลือก <b>ร้านใหม่</b> หรือ <b>ค้นชื่อร้านของคุณ</b></li><li>กรอกข้อมูลร้าน <b>ถ่ายรูปหน้าร้าน</b> และกด <b>บันทึกตำแหน่ง</b> ขณะอยู่ที่ร้าน</li><li>ตอบแบบ <b>ประเมินตนเอง</b> แล้วกดส่ง — ไม่ต้องสมัครสมาชิก</li></ol>
+          <div class="u">${esc(url)}</div><script>setTimeout(()=>print(),900)<\/script></body></html>`);w.document.close()}}};
+  draw();
+}
 
 /* ====================== กล่องข้อมูลจากร้านค้า ====================== */
 async function viewInbox(){
@@ -1300,7 +1370,7 @@ async function viewInbox(){
       ${r.status==='accepted'&&(st||r.type==='new')?(st?`<a class="btn sm" style="margin-top:8px" href="#store/${st.id}">ดูหน้าร้าน</a>`:''):''}
     </div>`};
   v.innerHTML=`<div class="info small">ข้อมูลที่ร้านค้ากรอกเองผ่านลิงก์/QR จะยังไม่ถูกบันทึกจนกว่าเจ้าหน้าที่จะกด “รับข้อมูล”${canRev?'':' (อสม. ดูได้อย่างเดียว)'}</div>
-    ${canEdit()&&me().unitId?'<button class="btn block" data-unitlink style="margin-bottom:12px">🔗 ลิงก์/QR ลงทะเบียนร้านค้าใหม่ของหน่วย</button>':''}
+    ${canEdit()&&(me().unitId||isSuper())?'<a class="btn pri block" href="#unitqr" style="margin-bottom:12px">📱 QR สำรวจร้านค้าของหน่วยบริการ (ส่งให้ร้านกรอกเอง)</a>':''}
     <h3>รอตรวจรับ (${pend.length})</h3>${pend.map(card).join('')||'<div class="empty" style="padding:14px">ไม่มีรายการรอตรวจรับ</div>'}
     ${reps.length>pend.length?`<h3>ตรวจรับแล้ว</h3>${reps.filter(r=>r.status!=='pending').slice(0,30).map(card).join('')}`:''}`;
   v.onclick=async e=>{if(e.target.closest('[data-unitlink]')){unitSelfLink();return}
@@ -1427,6 +1497,7 @@ function viewSettings(){
       <div class="small" style="margin:10px 0">${esc(u.position||'')}${u.phone?' · '+esc(u.phone):''}<br>หน่วยบริการ: <b>${esc(myUnitName()||(isSuper()?'ทุกหน่วยบริการ':'-'))}</b></div>
       ${!u.unitId&&!isSuper()?'<div class="note">⚠ บัญชียังไม่ได้กำหนดหน่วยบริการ — บันทึกข้อมูลไม่ได้ กรุณาติดต่อผู้ดูแลระบบสูงสุด</div>':''}
       <div class="btns"><button class="btn" data-act="profile">✏️ แก้ไขข้อมูลส่วนตัว</button><button class="btn danger" data-act="logout">ออกจากระบบ</button></div>
+      ${canEdit()&&(me().unitId||isSuper())?'<a class="btn block" href="#unitqr" style="margin-top:10px">📱 QR สำรวจร้านค้าของหน่วยบริการ</a>':''}
       ${me().role==='staff'?'<a class="btn pri block" href="#users" style="margin-top:10px">👥 จัดการ อสม. ในหน่วย (อนุมัติ/กำหนดสิทธิ์)</a>':''}
       ${me().role==='osm'?`<div class="small" style="margin-top:8px">🔑 สิทธิ์ของคุณ: ${String(me().perms||'').split(',').filter(Boolean).map(k=>OSM_PERMS[k]).join(', ')||'ยังไม่ได้รับสิทธิ์ (ติดต่อเจ้าหน้าที่)'}</div>`:''}
       ${isAdmin()?`<a class="btn pri block" id="usersBtn" href="#users" style="margin-top:10px">👥 จัดการผู้ใช้ / อนุมัติผู้สมัคร${S.pending?` (รอ ${S.pending} คน)`:''}</a>`:''}
